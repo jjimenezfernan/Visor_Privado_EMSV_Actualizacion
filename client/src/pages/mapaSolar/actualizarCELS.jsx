@@ -47,6 +47,7 @@ function ActualizarCELS() {
     reference: "",
     auto_CEL: 1,
     por_ocupacion: "",
+    num_usuarios: "", 
   });
 
   const resetForm = () => {
@@ -57,6 +58,7 @@ function ActualizarCELS() {
       reference: "",
       auto_CEL: 1,
       por_ocupacion: "",
+      num_usuarios: "",
     });
     setSelectedId(null);
   };
@@ -146,14 +148,24 @@ function ActualizarCELS() {
     setForm((f) => ({ ...f, [name]: value }));
   };
 
+
+
   const validate = () => {
     if (!form.nombre.trim()) return "El nombre es obligatorio.";
     if (!form.street_norm.trim()) return "La calle (street_norm) es obligatoria.";
     if (!String(form.number_norm).trim() || Number.isNaN(Number(form.number_norm)))
       return "El número (number_norm) debe ser un entero.";
     if (!form.reference.trim()) return "La referencia es obligatoria.";
+
     if (form.por_ocupacion !== "" && (Number(form.por_ocupacion) < 0 || Number(form.por_ocupacion) > 100))
       return "El porcentaje de ocupación debe estar entre 0 y 100.";
+
+    if (Number(form.auto_CEL) === 2) {
+      if (form.por_ocupacion === "" || Number.isNaN(Number(form.por_ocupacion)))
+        return "El porcentaje de ocupación es obligatorio para Autoconsumo compartido.";
+      if (form.num_usuarios === "" || Number(form.num_usuarios) < 1)
+        return "El número de usuarios (>=1) es obligatorio para Autoconsumo compartido.";
+    }
     return null;
   };
 
@@ -171,7 +183,10 @@ function ActualizarCELS() {
         auto_CEL: Number(form.auto_CEL),
         ...(form.por_ocupacion === "" || isNaN(Number(form.por_ocupacion))
           ? {}
-          : { por_ocupacion: Number(form.por_ocupacion) }), // guardas 0–100
+          : { por_ocupacion: Number(form.por_ocupacion) }),
+        ...(form.num_usuarios === "" || isNaN(Number(form.num_usuarios))
+          ? {}
+          : { num_usuarios: Number(form.num_usuarios) }),         // <— NUEVO
       };
 
       if (mode === "crear" || !selectedId) {
@@ -193,6 +208,7 @@ function ActualizarCELS() {
     }
   };
 
+
   const handleSelectCEL = async (cel) => {
     if (!cel) {
       resetForm();
@@ -212,6 +228,7 @@ function ActualizarCELS() {
       reference: cel.reference || "",
       auto_CEL: Number(cel.auto_CEL ?? 1),
       por_ocupacion: por === "" ? "" : String(por),
+      num_usuarios: cel.num_usuarios != null ? String(cel.num_usuarios) : "",
     });
   };
 
@@ -416,7 +433,16 @@ function ActualizarCELS() {
                 name="auto_CEL"
                 value={form.auto_CEL}
                 label="Tipo de proyecto"
-                onChange={(e) => setForm((f) => ({ ...f, auto_CEL: e.target.value }))}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setForm((f) => ({
+                    ...f,
+                    auto_CEL: v,
+                    // si pasa a CEL (1), los opcionales ya no son requeridos; opcional: limpiar
+                    por_ocupacion: v === 2 ? f.por_ocupacion : "",
+                    num_usuarios: v === 2 ? f.num_usuarios : "",   // <— NUEVO
+                  }));
+                }}
               >
                 <MenuItem value={1}>CEL</MenuItem>
                 <MenuItem value={2}>Autoconsumo compartido</MenuItem>
@@ -437,6 +463,21 @@ function ActualizarCELS() {
               helperText="Introduce 0–100. Se guardará como 0–100."
             />
           </Stack>
+          {/* --- Número de usuarios (solo Autoconsumo compartido) --- */}
+          {Number(form.auto_CEL) === 2 && (
+            <Stack spacing={2} direction={{ xs: "column", sm: "row" }} sx={{ mt: 2 }}>
+              <TextField
+                fullWidth
+                label="Número de usuarios"
+                name="num_usuarios"
+                value={form.num_usuarios}
+                onChange={handleChange}
+                type="number"
+                inputProps={{ min: 1, step: 1 }}
+                helperText="Obligatorio si es Autoconsumo compartido."
+              />
+            </Stack>
+          )}
 
           {/* --- Botones --- */}
           <Box mt={3} display="flex" gap={1.5}>

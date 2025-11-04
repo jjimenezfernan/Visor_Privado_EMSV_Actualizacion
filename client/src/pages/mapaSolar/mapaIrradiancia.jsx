@@ -36,8 +36,10 @@ import { useLayoutEffect } from "react";
 import RightLayerPanel from "../../components/RightLayerPanel";
 
 
-
-
+// ---- leyenda irradiancia ----
+// kWh/m²·año (ajusta rangos si tu dataset tiene otros valores)
+// ---- leyenda irradiancia (kWh/m²·a) ----
+// rangos de tu imagen
 const IRR_BINS = [
   { min: 183.78,  max: 1112.49, color: "#053bd3" },
   { min: 1112.49, max: 1491.41, color: "#28b6f6" },
@@ -73,7 +75,7 @@ function LegendIrr({ minZoom = 17, maxZoom = 19 }) {
 
   return (
     <div style={{
-      position: "absolute", right: 12, bottom: 76, zIndex: 500,
+      position: "absolute", right: 5, bottom: 20, zIndex: 500,
       pointerEvents: "none", background: "white", padding: "8px 10px",
       borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", font: "12px system-ui"
     }}>
@@ -172,9 +174,9 @@ function Legend({ minZoom = 17, maxZoom = 18 }) {
     <div style={{
       position: "absolute",
       right: 12,
-      bottom: 76,             // subir para no solapar el botón de capas
-      zIndex: 500,            // por debajo de los controles
-      pointerEvents: "none",  // no intercepta clics
+      bottom: 76,             
+      zIndex: 500,            
+      pointerEvents: "none",  
       background: "white",
       padding: "8px 10px",
       borderRadius: 8,
@@ -326,33 +328,20 @@ function IrradianceLayer({ bbox, minZoom = 17, maxZoom = 19 }) {
   const nextRef = useRef(null);
   const abortRef = useRef(null);
   const prevFetchBBoxRef = useRef(null);
-  const paneName = "irr-pane";
   const rendererRef = useRef(null);
 
+  const paneName = "irr-pane";
   const CHUNK_SIZE = 2000;
   const CHUNK_DELAY = 16;
-  const PANE_FADE_MS = 220;
+  const PANE_FADE_MS = 180;
 
-  useEffect(() => {
-    if (!map) return;
-    if (!map.getPane(paneName)) {
-      map.createPane(paneName);
-      const p = map.getPane(paneName);
-      p.style.zIndex = 430;
-      p.style.transition = `opacity ${PANE_FADE_MS}ms ease`;
-      p.style.mixBlendMode = "multiply";
-      p.style.opacity = "1";
-      p.style.pointerEvents = "none";
-    }
-    if (!rendererRef.current) rendererRef.current = L.canvas({ padding: 0.5 });
-  }, [map]);
-
+  // helpers
+  const setPaneOpacity = (v) => { const p = map?.getPane?.(paneName); if (p) p.style.opacity = String(v); };
   const inRange = () => {
     const z = map?.getZoom?.() ?? 0;
     return z >= minZoom && z <= maxZoom;
   };
-  const pointRadiusForZoom = (z) => Math.max(1.6, Math.min(0.8 + (z - 15) * 1.1, 5));
-
+  const pointRadiusForZoom = (z) => Math.max(1.2, Math.min(0.6 + (z - 15) * 0.9, 3.5));
   const padBBox = ([w, s, e, n], r = 0.12) => {
     const dx = (e - w) * r, dy = (n - s) * r;
     return [w - dx, s - dy, e + dx, n + dy];
@@ -368,9 +357,7 @@ function IrradianceLayer({ bbox, minZoom = 17, maxZoom = 19 }) {
       Math.abs(n1 - n0) > height * 0.12
     );
   };
-
-  // same chunked add the shadows layer uses
-  const progressivelyAdd = async (fc, lyr, signal) => {
+  const progressivelyAdd = (fc, lyr, signal) => {
     const feats = fc.features || [];
     let i = 0;
     const step = () => {
@@ -385,75 +372,105 @@ function IrradianceLayer({ bbox, minZoom = 17, maxZoom = 19 }) {
     step();
   };
 
+  // create pane + renderer once
+  useEffect(() => {
+    if (!map) return;
+    if (!map.getPane(paneName)) {
+      const p = map.createPane(paneName);
+      p.style.zIndex = 430;
+      p.style.transition = `opacity ${PANE_FADE_MS}ms ease`;
+      p.style.pointerEvents = "none";
+      p.style.mixBlendMode = "multiply";
+      p.style.opacity = "1";
+    }
+    if (!rendererRef.current) rendererRef.current = L.canvas({ padding: 0.5 });
+  }, [map]);
+
+  // fetch/swap logic
   useEffect(() => {
     if (!map || !bbox || !inRange()) {
       if (currentRef.current) { map.removeLayer(currentRef.current); currentRef.current = null; }
+      // make sure pane is visible if we leave the range
+      setPaneOpacity(1);
       return;
     }
 
     const padded = padBBox(bbox, 0.1);
     if (!shouldRefetch(padded, prevFetchBBoxRef.current)) {
+      // only update marker radius on zoom
       const r = pointRadiusForZoom(map.getZoom());
-      if (currentRef.current) currentRef.current.eachLayer((m) => { if (m.setRadius) m.setRadius(r); });
+      if (currentRef.current) currentRef.current.eachLayer((m) => m.setRadius?.(r));
       return;
     }
 
+    // abort previous
     if (abortRef.current) abortRef.current.abort();
     const ac = new AbortController();
     abortRef.current = ac;
 
-    // mirror shadows: single (large) request + progressive add
     const params = new URLSearchParams({ bbox: padded.join(","), limit: "100000", offset: "0" });
-    const paneEl = map.getPane(paneName);
-    const radius = pointRadiusForZoom(map.getZoom());
-    const hadLayer = !!currentRef.current;
+    const url = `${API_BASE}/irradiance/features?${params}`;
+
+    // start fade (very small fade so it never “sticks invisible”)
+    setPaneOpacity(0.2);
 
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/irradiance/features?${params}`, { signal: ac.signal });
-        if (!res.ok) return;
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const fc = await res.json();
         if (ac.signal.aborted) return;
 
+        const features = fc?.features || [];
+        if (!features.length) {
+          // nothing new → keep the current layer, just restore opacity
+          prevFetchBBoxRef.current = padded;
+          setPaneOpacity(1);
+          return;
+        }
+
+        const r = pointRadiusForZoom(map.getZoom());
         const lyr = L.geoJSON(null, {
           pane: paneName,
           renderer: rendererRef.current,
           interactive: false,
-          style: (f) => {
-            const v = f.properties?.value;
-            const c = colorForIrr(v);
-            return { color: c, weight: 0, fillColor: c, fillOpacity: 0.9 };
-          },
           pointToLayer: (f, latlng) => {
             const v = f.properties?.value;
             const c = colorForIrr(v);
             return L.circleMarker(latlng, {
-              radius: 1.5,                
+              radius: 1.5,
               stroke: false,
               fillColor: c,
-              fillOpacity: 1.25,
+              fillOpacity: 1.25,   // keep <= 1
               renderer: rendererRef.current,
               pane: paneName,
-              interactive: false,
             });
+          },
+          style: (f) => {
+            const v = f.properties?.value;
+            const c = colorForIrr(v);
+            return { color: c, weight: 0, fillColor: c, fillOpacity: 1 };
           },
         });
 
         lyr.addTo(map);
         nextRef.current = lyr;
 
-        if (paneEl && !hadLayer) paneEl.style.opacity = "0";
-        await progressivelyAdd(fc, lyr, ac.signal);
-        if (ac.signal.aborted) return;
-
-        if (currentRef.current) map.removeLayer(currentRef.current);
-        currentRef.current = nextRef.current;
-        nextRef.current = null;
-
-        if (paneEl && !hadLayer) paneEl.style.opacity = "1";
-        prevFetchBBoxRef.current = padded;
+        // add progressively
+        progressivelyAdd(fc, lyr, ac.signal);
+        // swap when done (queue a microtask so the last chunk paints)
+        setTimeout(() => {
+          if (ac.signal.aborted) return;
+          if (currentRef.current) map.removeLayer(currentRef.current);
+          currentRef.current = nextRef.current;
+          nextRef.current = null;
+          prevFetchBBoxRef.current = padded;
+          setPaneOpacity(1); // ALWAYS restore
+        }, CHUNK_DELAY + 4);
       } catch (e) {
         if (e.name !== "AbortError") console.error("Irradiance fetch error:", e);
+        // on error/abort also restore opacity
+        setPaneOpacity(1);
       }
     })();
 
@@ -462,20 +479,18 @@ function IrradianceLayer({ bbox, minZoom = 17, maxZoom = 19 }) {
     };
   }, [map, bbox, minZoom, maxZoom]);
 
+  // keep radii in sync on zoom
   useEffect(() => {
     if (!map) return;
     const onZoomEnd = () => {
-      if (!inRange()) {
-        if (currentRef.current) { map.removeLayer(currentRef.current); currentRef.current = null; }
-        return;
-      }
       const r = pointRadiusForZoom(map.getZoom());
-      if (currentRef.current) currentRef.current.eachLayer((m) => { if (m.setRadius) m.setRadius(r); });
+      if (currentRef.current) currentRef.current.eachLayer((m) => m.setRadius?.(r));
     };
     map.on("zoomend", onZoomEnd);
     return () => map.off("zoomend", onZoomEnd);
-  }, [map, minZoom, maxZoom]);
+  }, [map]);
 
+  // cleanup
   useEffect(() => {
     return () => {
       if (abortRef.current) abortRef.current.abort();
@@ -490,7 +505,236 @@ function IrradianceLayer({ bbox, minZoom = 17, maxZoom = 19 }) {
 }
 
 
+function useMapZoom() {
+  const map = useMap();
+  const [zoom, setZoom] = useState(() => map?.getZoom?.() ?? 0);
+  useEffect(() => {
+    const on = () => setZoom(map.getZoom());
+    map.on("zoomend", on);
+    on();
+    return () => map.off("zoomend", on);
+  }, [map]);
+  return zoom;
+}
 
+function LegendContinuous({ bins, title = "Irradiancia (kWh/m²·año)", visible=true }) {
+  if (!visible || !bins?.length) return null;
+  return (
+    <div style={{
+      position: "absolute", right: 5, bottom: 20, zIndex: 500,
+      pointerEvents: "none", background: "white", padding: "8px 10px",
+      borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.15)", font: "12px system-ui"
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>{title}</div>
+      {bins.map((b,i)=>(
+        <div key={i} style={{ display:"flex", alignItems:"center", margin:"2px 0" }}>
+          <span style={{
+            display:"inline-block", width:12, height:12, borderRadius:9999,
+            background:b.color, marginRight:8, border:"1px solid #999"
+          }}/>
+          <span>{b.min.toFixed(0)} – {b.max.toFixed(0)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// Creates N equal-interval bins for [min,max]
+function makeEqualBins(min, max, n = 7) {
+  if (!isFinite(min) || !isFinite(max) || min === max) {
+    const v = isFinite(min) ? min : 0;
+    return [{ min: v, max: v, color: "#cccccc" }];
+  }
+  const colors = ["#053bd3","#28b6f6","#6ee7b7","#f7e52b","#ffaa00","#ff7043","#d32f2f"];
+  const step = (max - min) / n;
+  return new Array(n).fill(0).map((_,i) => ({
+    min: min + i*step,
+    max: i === n-1 ? max : min + (i+1)*step,
+    color: colors[Math.min(i, colors.length-1)]
+  }));
+}
+
+function makeColorForBins(bins) {
+  return (v) => {
+    if (v == null || Number.isNaN(v)) return "#cccccc";
+    for (const b of bins) if (v >= b.min && v <= b.max) return b.color;
+    return bins[bins.length-1].color;
+  };
+}
+
+
+function BuildingIrradianceLayer({ bbox, onLegendChange,onBuildingClick  }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const abortRef = useRef(null);
+  const prevBBoxRef = useRef(null);
+  const paneName = "bldg-irr-pane";
+
+  useEffect(() => {
+    if (!map) return;
+    if (!map.getPane(paneName)) {
+      const p = map.createPane(paneName);
+      p.style.zIndex = 440;           
+    }
+  }, [map]);
+
+  const shouldRefetch = (b1, b0) => {
+    if (!b0) return true;
+    const [w1,s1,e1,n1]=b1, [w0,s0,e0,n0]=b0;
+    const W=e0-w0, H=n0-s0;
+    return Math.abs(w1-w0)>W*0.12 || Math.abs(e1-e0)>W*0.12 || Math.abs(s1-s0)>H*0.12 || Math.abs(n1-n0)>H*0.12;
+  };
+
+  useEffect(() => {
+    if (!map || !bbox) return;
+
+    if (!shouldRefetch(bbox, prevBBoxRef.current)) return;
+
+    // abort previous fetch
+    if (abortRef.current) abortRef.current.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    const params = new URLSearchParams({ bbox: bbox.join(","), limit: "50000", offset: "0" });
+    const url = `${API_BASE}/buildings/irradiance?${params}`;
+
+    (async () => {
+      try {
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const fc = await res.json();
+        if (ac.signal.aborted) return;
+
+        const feats = (fc?.features||[]).filter(f => f?.geometry);
+        // compute bins from visible buildings
+        const values = feats.map(f => f.properties?.irr_building).filter(v => typeof v === "number" && isFinite(v));
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const bins = makeEqualBins(min, max, 7);
+        const colorFor = makeColorForBins(bins);
+        onLegendChange?.(bins);
+
+        // build layer
+        const lyr = L.geoJSON(feats, {
+          pane: paneName,
+          interactive: true,
+          style: (f) => {
+            const v = f.properties?.irr_building;
+            const c = colorFor(v);
+            return {
+              color: "#00000030",
+              weight: 0.5,
+              fillColor: c,
+              fillOpacity: 0.8
+            };
+          },
+          onEachFeature: (feature, layer) => {
+            // habilita click directamente sobre el polígono pintado
+            layer.on("click", () => {
+              // si tienes la feature tal cual del buildings, ya lleva `properties.reference`
+              if (typeof onBuildingClick === "function") {
+                onBuildingClick(feature);
+              }
+            });
+           }
+        });
+
+        // swap layer
+        if (layerRef.current) map.removeLayer(layerRef.current);
+        lyr.addTo(map);
+        layerRef.current = lyr;
+        prevBBoxRef.current = bbox;
+      } catch (e) {
+        if (e.name !== "AbortError") console.error("BuildingIrradianceLayer:", e);
+        onLegendChange?.(null);
+      }
+    })();
+
+    return () => { /* nothing */ };
+  }, [map, bbox, onLegendChange, onBuildingClick]);
+
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+      if (layerRef.current && map) map.removeLayer(layerRef.current);
+    };
+  }, [map]);
+
+  return null;
+}
+
+/* LEYENDA IDEALISTA
+function ZoomAwareIrradiance({ bbox }) {
+  const zoom = useMapZoom();
+  const [legendBins, setLegendBins] = useState(null);
+
+  const showBldg = zoom >= 17 && zoom <= 18;
+  const showPts  = zoom >= 19;
+
+  // helpers para etiquetas
+  const minVal = legendBins?.[0]?.min;
+  const maxVal = legendBins?.[legendBins.length-1]?.max;
+  const colors = legendBins?.map(b => b.color) ?? [];
+
+  return (
+    <>
+      {showPts && bbox && (
+        <>
+          <IrradianceLayer bbox={bbox} minZoom={19} maxZoom={19} />
+          <LegendIrr minZoom={19} maxZoom={19} />
+        </>
+      )}
+
+      {showBldg && bbox && (
+        <>
+          <BuildingIrradianceLayer bbox={bbox} onLegendChange={setLegendBins} />
+          
+
+          {legendBins?.length ? (
+            <TopCenterLegend
+              bins={legendBins}
+              colors={colors}                 // explícito (opcional; con bins basta)
+              leftLabel={`${minVal?.toFixed(0)} kWh/m²·año`}
+              rightLabel={`${maxVal?.toFixed(0)} kWh/m²·año`}
+              top={10}                        // ajústalo si tienes una topbar
+              width={360}                     // anchura de la barra
+              height={12}                     // altura de la barra
+            />
+          ) : null}
+        </>
+      )}
+    </>
+  );
+}
+*/
+
+function ZoomAwareIrradiance({ bbox, pointsOn=true, onBuildingClick }) {
+  const zoom = useMapZoom();
+  const [legendBins, setLegendBins] = useState(null);
+
+  return (
+    <>
+      {zoom >= 19 && bbox && (
+        <>
+          <IrradianceLayer bbox={bbox} minZoom={19} maxZoom={19} />
+          <LegendIrr minZoom={19} maxZoom={19} />
+        </>
+      )}
+
+      {zoom >= 13 && zoom <= 18 && bbox && (
+        <>
+          <BuildingIrradianceLayer
+            bbox={bbox}
+            onLegendChange={setLegendBins}
+            onBuildingClick={onBuildingClick}   // <-- añade esto
+          />
+          <LegendContinuous bins={legendBins} visible />
+        </>
+      )}
+    </>
+  );
+}
 
 
 function IrrZonalDrawControl({ onStats }) {
@@ -556,8 +800,8 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
   const paneName = "shadows-pane";
   const rendererRef = useRef(null);
 
-  const CHUNK_SIZE = 2000;
-  const CHUNK_DELAY = 16;
+  const CHUNK_SIZE = 3500;
+  const CHUNK_DELAY = 8;
   const PANE_FADE_MS = 220;
 
   useEffect(() => {
@@ -582,19 +826,21 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
   };
   const pointRadiusForZoom = (z) => Math.max(1.6, Math.min(0.8 + (z - 15) * 1.1, 5));
 
-  const padBBox = ([w, s, e, n], r = 0.12) => {
-    const dx = (e - w) * r, dy = (n - s) * r;
-    return [w - dx, s - dy, e + dx, n + dy];
+
+  const padBBox = ([w,s,e,n], r = 0.05) => { 
+   const dx = (e-w)*r, dy=(n-s)*r;
+   return [w-dx, s-dy, e+dx, n+dy];
   };
+  
   const shouldRefetch = (newB, oldB) => {
     if (!oldB) return true;
     const [w1, s1, e1, n1] = newB; const [w0, s0, e0, n0] = oldB;
     const width = Math.max(1e-9, e0 - w0), height = Math.max(1e-9, n0 - s0);
     return (
-      Math.abs(w1 - w0) > width * 0.12 ||
-      Math.abs(e1 - e0) > width * 0.12 ||
-      Math.abs(s1 - s0) > height * 0.12 ||
-      Math.abs(n1 - n0) > height * 0.12
+      Math.abs(w1 - w0) > width * 0.18 ||
+      Math.abs(e1 - e0) > width * 0.18 ||
+      Math.abs(s1 - s0) > height * 0.18 ||
+      Math.abs(n1 - n0) > height * 0.18
     );
   };
 
@@ -996,10 +1242,12 @@ function CelsBufferLayer({ radiusMeters = 1000 }) {
     if (!map.getPane(paneName)) {
       map.createPane(paneName);
       const p = map.getPane(paneName);
-      p.style.zIndex = 560;          // ⬅️ visible above buildings
-      p.style.pointerEvents = "none"; // ⬅️ pane ignores mouse events (click-through)
+      p.style.zIndex = 560;          
+      p.style.pointerEvents = "none";
     }
   }, [map]);
+
+
 
   useEffect(() => {
     if (!map) return;
@@ -1098,7 +1346,90 @@ function OverlayVisibilityBinder({ targetRef, onChange }) {
   return null;
 }
 
-export default function mapaIrradiancia() {
+export default function NewMap() {
+
+
+  // Usa exactamente la misma lógica que ya tenías en el <SearchBoxEMSV /> inline
+  async function handleSearchBoxFeature(feature) {
+    // centrar/seleccionar
+    highlightSelectedFeature(mapRef.current, feature);
+
+    // métricas del edificio
+    const ref = feature?.properties?.reference;
+    setBRef(ref || null);
+    setBMetrics(null);
+    setBMetricsError("");
+    setBMetricsLoading(!!ref);
+
+    if (ref) {
+      try {
+        const { metrics } = await fetchBuildingMetricsByRef(ref);
+        setBMetrics(metrics);
+      } catch (e) {
+        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
+      } finally {
+        setBMetricsLoading(false);
+      }
+    }
+
+    // sombras + CELS (igual que antes)
+    try {
+      setBStatsError("");
+      setBStatsLoading(true);
+      setBStats(null);
+
+      let geom = feature?.geometry ?? feature;
+      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
+        const [x, y] = geom.coordinates;
+        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
+        geom = circle.geometry;
+      }
+
+      const stats = await fetch(`${API_BASE}/shadows/zonal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ geometry: geom }),
+      }).then(r => r.json());
+
+      setBStats(stats);
+
+      // CELS
+      try {
+        setCelsHitsError("");
+        setCelsHitsLoading(true);
+        setCelsHits([]);
+
+        const hits = await fetchCELSHitsForGeometry(geom, 500);
+        setCelsHits(hits);
+      } catch (e) {
+        console.error("Error fetching CELS for building:", e);
+        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
+        setCelsHits([]);
+      } finally {
+        setCelsHitsLoading(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
+    } finally {
+      setBStatsLoading(false);
+    }
+  }
+
+  function handleSearchBoxReset() {
+    clearSelectionAndPopup();
+    setBStats(null);
+    setBStatsError("");
+    setBStatsLoading(false);
+    setCelsHits([]);
+    setCelsHitsError("");
+    setCelsHitsLoading(false);
+    setBRef(null);
+    setBMetrics(null);
+    setBMetricsError("");
+    setBMetricsLoading(false);
+  }
+
 
   const [bRef, setBRef] = useState(null);
   const [bMetrics, setBMetrics] = useState(null);
@@ -1116,7 +1447,7 @@ export default function mapaIrradiancia() {
   const [celsHitsLoading, setCelsHitsLoading] = useState(false);
   const [celsHitsError, setCelsHitsError] = useState("");
 
-  const [irradianceVisible, setIrradianceVisible] = useState(false); 
+  const [irradianceVisible, setIrradianceVisible] = useState(true); 
   const [celsVisible, setCelsVisible] = useState(true);
   const [certificateVisible, setCertificateVisible] = useState(false);
 
@@ -1399,6 +1730,10 @@ export default function mapaIrradiancia() {
   };
 
 
+    useEffect(() => {
+      const p = mapRef.current?.getPane?.("cels-pane");
+      if (p) p.style.opacity = celsVisible ? "1" : "0";
+    }, [celsVisible]);
 
 
   
@@ -1455,25 +1790,25 @@ export default function mapaIrradiancia() {
                 />
 
 
-                {/* Capas reales montadas por estado */}
+                {/* 
                 {irradianceVisible && (
                   <>
                     {bbox && <IrradianceLayer  bbox={bbox} minZoom={17} maxZoom={19} />}
                     <LegendIrr  minZoom={17} maxZoom={19} />
                   </>
                 )}
-                {celsVisible && <CelsBufferLayer radiusMeters={500} />}
+                */}
+                {irradianceVisible && <ZoomAwareIrradiance bbox={bbox} onBuildingClick={handleBuildingClick} />}
 
+
+
+                {celsVisible && <CelsBufferLayer radiusMeters={500} />}
+                
                 {certificateVisible && (
                 // TODO: sustituye por tu capa real de certificados
                 null
                 )}
 
-               
-                {irradianceVisible
-                  ? <IrrZonalDrawControl onStats={(s) => console.log("Zonal IRR:", s)} />
-                  : <ZonalDrawControl onStats={(s) => console.log("Zonal sombras:", s)} />
-                }
                 {geoLimites && (
                   <LayerGeoJSON
                     fc={geoLimites}
@@ -1496,116 +1831,8 @@ export default function mapaIrradiancia() {
           </Grid>
 
           <Grid item xs={12} md={4}>
-            <Stack spacing={2} sx={{ height: "100%" }}>
-              <Box
-                sx={{
-                  backgroundColor: "#f3f4f6",
-                  borderRadius: "10px",
-                  p: "0.75rem 1rem",
-                }}
-              >
-                <Typography
-                  variant="h6"
-                  color="#fff"
-                  fontWeight={600}
-                  sx={{
-                    background: colors.blueAccent[400],
-                    borderRadius: "6px",
-                    px: "0.6rem",
-                    py: "0.35rem",
-                    mb: 1,
-                    lineHeight: 1.2,
-                  }}
-                >
-                  Buscador de Direcciones
-                </Typography>
-
-                <SearchBoxEMSV
-                  jsonRef={jsonRef}
-                  loading={loadingEmsv}
-                  apiBase={API_BASE}
-                  onFeature={async (feature) => {
-                    highlightSelectedFeature(mapRef.current, feature);
-                    const ref = feature?.properties?.reference;
-                    setBRef(ref || null);
-                    setBMetrics(null);
-                    setBMetricsError("");
-                    setBMetricsLoading(!!ref);
-
-                    if (ref) {
-                      try {
-                        const { metrics } = await fetchBuildingMetricsByRef(ref);
-                        setBMetrics(metrics);
-                      } catch (e) {
-                        setBMetricsError(e.message || "No se pudieron cargar las métricas.");
-                      } finally {
-                        setBMetricsLoading(false);
-                      }
-                    }
-
-                    
-                    try {
-                      setBStatsError("");
-                      setBStatsLoading(true);
-                      setBStats(null);
-
-                      let geom = feature?.geometry ?? feature;
-                      if (geom?.type === "Point" && Array.isArray(geom.coordinates)) {
-                        const [x, y] = geom.coordinates;
-                        const circle = turf.circle([x, y], 8, { units: "meters", steps: 48 });
-                        geom = circle.geometry;
-                      }
-                      
-                      const stats = await fetch(`${API_BASE}/shadows/zonal`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ geometry: geom }),
-                      }).then(r => r.json());
-
-                      setBStats(stats);
-                      setCelsHitsError("");
-                      setCelsHitsLoading(true);
-                      
-                      
-                      // --- 2. Consultar membresía a CELS ---
-                      try {
-                        setCelsHitsError("");
-                        setCelsHitsLoading(true);
-                        setCelsHits([]);
-
-                        const hits = await fetchCELSHitsForGeometry(geom, 500);
-                        setCelsHits(hits);
-                        const center = selectionRef.current?.getBounds?.()?.getCenter?.();                       
-                      } catch (e) {
-                        console.error("Error fetching CELS for building:", e);
-                        setCelsHitsError("No se pudo determinar qué CELS incluyen este edificio.");
-                        setCelsHits([]);
-                      } finally {
-                        setCelsHitsLoading(false);
-                      }
-                    } catch (e) {
-                      console.error(e);
-                      setBStatsError("No se pudieron calcular las estadísticas de sombras para este edificio.");
-                    } finally {
-                      setBStatsLoading(false);
-                    }
-                  }}
-
-                  onReset={() => {
-                    clearSelectionAndPopup();
-                    setBStats(null);
-                    setBStatsError("");
-                    setBStatsLoading(false);
-                    setCelsHits([]);          // limpiar CELS
-                    setCelsHitsError("");
-                    setCelsHitsLoading(false);
-                  }}
-                />
-              </Box>
-
+            <Stack spacing={1} sx={{ height: "100%" }}>
               {/* Panel de capas (Irradiance / CELS / Certificate) */}
-
-
               <RightLayerPanel
                 irradianceOn={irradianceVisible}
                 celsOn={celsVisible}
@@ -1626,11 +1853,20 @@ export default function mapaIrradiancia() {
                 buildingMetrics={bMetrics}
                 buildingMetricsLoading={bMetricsLoading}
                 buildingMetricsError={bMetricsError}
+                shadowStats={bStats}
+                shadowLoading={bStatsLoading}
+                shadowError={bStatsError}
+                searchJsonRef={jsonRef}
+                searchLoading={loadingEmsv}
+                searchApiBase={API_BASE}
+                onSearchFeature={handleSearchBoxFeature}
+                onSearchReset={handleSearchBoxReset}
               />
 
 
-              {/* (Opcional) estadísticas del edificio pueden quedarse debajo si te interesa */}
+              {/*
               <AdditionalPanel stats={bStats} loading={bStatsLoading} error={bStatsError} />
+              */}
             </Stack>
           </Grid>
         </Grid>
