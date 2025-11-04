@@ -19,7 +19,7 @@ import { AnimatePresence } from "framer-motion";
 import BarriosDashboard from "./pages/barrios_dashboard";
 import ActualizarArchivos from "./pages/actualizar_archivos";
 
-import MapasExtra from "./pages/mapaSolar/mapaSombras";
+import MapasEspacioPublico from "./pages/mapaSolar/mapaEspacioPublico";
 import MapEMSVProvider from "./components/MapEMSVProvider";
 import MapZoomProvider from "./components/MapZoomProvider";
 import MapTypeSelectProvider from "./components/MapTypeSelectProvider";
@@ -86,7 +86,7 @@ function App() {
                         <MapEMSVProvider>
                           <MapZoomProvider>
                             <MapTypeSelectProvider>
-                              <MapasExtra />
+                              <MapasEspacioPublico />
                             </MapTypeSelectProvider>
                           </MapZoomProvider>
                         </MapEMSVProvider>

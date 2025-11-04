@@ -38,6 +38,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---- arriba del fichero (cerca de SETTINGS) ----
+ALLOWED_SHADOW_TABLES = {"shadows", "puntos_no_parcelas"}  # añade aquí el nombre real de tu tabla
+
+def _shadow_table_or_400(name: str) -> str:
+    t = (name or "shadows").strip()
+    if t not in ALLOWED_SHADOW_TABLES:
+        raise HTTPException(400, f"Tabla no permitida: {t}")
+    return t
+
+
 # ============================================================
 # DATABASE CONNECTION HANDLING (per request)
 # ============================================================
@@ -298,15 +308,19 @@ def points_features(
 @app.get("/shadows/features")
 def shadows_features(
     bbox: str | None = Query(None),
-    limit: int = 5000,
+    limit: int = 500000,
     offset: int = 0,
+    table: str = Query("shadows", description="Nombre de tabla de sombras"),
     con: duckdb.DuckDBPyConnection = Depends(get_conn),
 ):
+    tbl = _shadow_table_or_400(table)
     where, params = parse_bbox(bbox)
+
+    # Asumimos columnas: geom (GEOMETRY) y shadow_count (NUMERIC)
     rows = q(con, f"""
         WITH f AS (
           SELECT geom, shadow_count
-          FROM shadows
+          FROM {tbl}
           {where}
           LIMIT ? OFFSET ?
         )
@@ -314,31 +328,34 @@ def shadows_features(
     """, params + [limit, offset])
 
     feats = [
-        {"type": "Feature", "geometry": json.loads(g), "properties": {"shadow_count": float(s) if s is not None else None}}
+        {"type": "Feature", "geometry": json.loads(g),
+         "properties": {"shadow_count": float(s) if s is not None else None}}
         for g, s in rows
     ]
-    return fc(feats)
+    return {"type": "FeatureCollection", "features": feats}
 
 @app.post("/shadows/zonal")
-def shadows_zonal(req: ZonalReq, con: duckdb.DuckDBPyConnection = Depends(get_conn)):
+def shadows_zonal(
+    req: ZonalReq,
+    table: str = Query("shadows", description="Nombre de tabla de sombras"),
+    con: duckdb.DuckDBPyConnection = Depends(get_conn)
+):
+    tbl = _shadow_table_or_400(table)
     geojson = json.dumps(req.geometry)
-    rows = q(con, """
+    rows = q(con, f"""
         WITH zone_raw AS (SELECT ST_GeomFromGeoJSON(?::VARCHAR) AS g),
-        zone AS (
-          SELECT CASE WHEN ST_IsValid(g) THEN g ELSE ST_Buffer(g, 0) END AS g FROM zone_raw
-        ),
+        zone AS (SELECT CASE WHEN ST_IsValid(g) THEN g ELSE ST_Buffer(g, 0) END AS g FROM zone_raw),
         hits AS (
-          SELECT s.shadow_count FROM shadows s, zone z WHERE ST_Intersects(s.geom, z.g)
+          SELECT s.shadow_count FROM {tbl} s, zone z
+          WHERE ST_Intersects(s.geom, z.g)
         )
         SELECT COALESCE(COUNT(*),0), AVG(shadow_count), MIN(shadow_count), MAX(shadow_count) FROM hits;
     """, [geojson])
     n, avg, mn, mx = rows[0] if rows else (0, None, None, None)
-    return {
-        "count": int(n or 0),
-        "avg": float(avg) if avg is not None else None,
-        "min": float(mn) if mn is not None else None,
-        "max": float(mx) if mx is not None else None,
-    }
+    return {"count": int(n or 0),
+            "avg": float(avg) if avg is not None else None,
+            "min": float(mn) if mn is not None else None,
+            "max": float(mx) if mx is not None else None}
 
 # ============================================================
 # IRRADIANCE
@@ -1005,3 +1022,41 @@ def list_cels(
     ]
 
     return {"total": int(total), "limit": limit, "offset": offset, "items": data}
+
+
+
+
+# ============================================================
+# PARCELS
+# ============================================================
+
+@app.get("/parcels/features")
+def parcels_features(
+    bbox: str | None = Query(None, description="minx,miny,maxx,maxy (WGS84)"),
+    limit: int = Query(5000000, ge=1, le=10000000000),
+    offset: int = Query(0, ge=0),
+    con: duckdb.DuckDBPyConnection = Depends(get_conn_ro),
+):
+    # Si tus geom están en EPSG:4326 no transformes; si están en 25830, usa parse_bbox_for_srid
+    where, params = parse_bbox(bbox)
+
+    rows = q(con, f"""
+        WITH f AS (
+          SELECT geom, id, nationalCadastralReference
+          FROM parcels
+          {where}
+          LIMIT ? OFFSET ?
+        )
+        SELECT ST_AsGeoJSON(geom), id, nationalCadastralReference FROM f;
+    """, params + [limit, offset])
+
+    feats = [{
+        "type": "Feature",
+        "geometry": (json.loads(gjson) if isinstance(gjson, str) else gjson),
+        "properties": {
+            "id": pid,
+            "nationalCadastralReference": ncr
+        }
+    } for gjson, pid, ncr in rows]
+
+    return fc(feats)

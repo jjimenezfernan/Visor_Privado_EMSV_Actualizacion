@@ -144,18 +144,18 @@ function SideBar() {
                   style={{
                     color: colors.gray[100],
                   }}
-                  component={<Link to="/mapas" />}
+                  component={<Link to="/mapas/irradiancia" />}
                 >
-                  Edificios
+                  Visor edificios irradiancia
                 </MenuItem>
                 <MenuItem
                   style={{
                     color: colors.gray[100],
                   }}
-                  component={<Link to="/mapas/irradiancia" />}
+                  component={<Link to="/mapas" />}
                 >
-                  Edificios Irradiancia
-                </MenuItem>
+                  Visor sombras espacio público
+                </MenuItem>         
               </SubMenu>
 
               <SubMenu icon={<CloudUploadIcon />} label="Actualización de datos">
