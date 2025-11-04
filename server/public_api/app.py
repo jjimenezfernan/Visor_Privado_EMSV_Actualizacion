@@ -8,6 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from contextlib import contextmanager
+
+
+import threading
 # ============================================================
 # SETTINGS
 # ============================================================
@@ -83,17 +86,17 @@ def get_db_connection(read_only: bool = True):
                 pass
 
 def _open_conn(read_only: bool):
-    con = duckdb.connect(DB_PATH, read_only=read_only)
+    # 👇 OJO: NO uses read_only=... en connect (Windows bloquea a veces)
+    con = duckdb.connect(DB_PATH)  # <- sin read_only
     con.execute("LOAD spatial;")
     try:
-        # usa todos menos 1 núcleo, o 4 si prefieres fijo
         threads = max(1, (os.cpu_count() or 4) - 1)
         con.execute(f"PRAGMA threads={threads};")
         con.execute("SET lock_timeout='5s';")
-        # opcional si haces muchas tmp: ajusta directorio temporal en SSD
-        # con.execute("PRAGMA temp_directory='C:/temp_duckdb';")
-        # opcional: límite de memoria p.ej. 75% (DuckDB por defecto usa heurística)
-        # con.execute("PRAGMA memory_limit='75%';")
+        # Si quieres forzar lectura:
+        if read_only:
+            con.execute("SET access_mode='read_only';")  # <- solo lectura a nivel SQL
+            con.execute("BEGIN READ ONLY;")              # <- opcional, asegura R/O
     except duckdb.Error:
         pass
     return con
@@ -106,21 +109,39 @@ def get_conn():
     finally:
         con.close()
 
-def get_conn_ro():
-    # Igual que get_conn, pero mantenlo por compat si lo usas en firmas
-    con = _open_conn(read_only=True)
+# Conexiones compartidas (una RW y una RO)
+DB_RW = duckdb.connect(DB_PATH)                 # lectura/escritura
+DB_RO = duckdb.connect(DB_PATH) # solo lectura
+
+for con in (DB_RW, DB_RO):
+    con.execute("LOAD spatial;")
     try:
-        yield con
+        threads = max(1, (os.cpu_count() or 4) - 1)
+        con.execute(f"PRAGMA threads={threads};")
+        con.execute("SET lock_timeout='5s';")
+    except duckdb.Error:
+        pass
+
+# Si quieres serializar escrituras:
+RW_LOCK = threading.RLock()
+
+def get_conn_ro():
+    # Con RO no hace falta lock: sólo lecturas
+    try:
+        yield DB_RO
     finally:
-        con.close()
+        pass  # no cerrar
 
 def get_conn_rw():
-    # Escritura (solo para POST/PUT)
-    con = _open_conn(read_only=False)
+    # Serializamos las operaciones de escritura
+    RW_LOCK.acquire()
     try:
-        yield con
+        yield DB_RW
     finally:
-        con.close()
+        RW_LOCK.release()
+
+
+
 
 def q(con: duckdb.DuckDBPyConnection, sql: str, params: list | tuple = ()):
     """Query helper that returns [] on empty and wraps errors."""
@@ -835,7 +856,7 @@ def create_cels(req: CelsBase, con: duckdb.DuckDBPyConnection = Depends(get_conn
 
 # ---------- CELS update (PUT) ----------
 @app.put("/cels/{cid}")
-def update_cels(cid: int, req: CelsBase, con: duckdb.DuckDBPyConnection = Depends(get_conn_ro)):
+def update_cels(cid: int, req: CelsBase, con: duckdb.DuckDBPyConnection = Depends(get_conn_rw)):
     if READ_ONLY:
         raise HTTPException(403, "La API está en modo read-only (READ_ONLY)")
     try:
@@ -875,6 +896,28 @@ def update_cels(cid: int, req: CelsBase, con: duckdb.DuckDBPyConnection = Depend
         con.execute("ROLLBACK")
         raise HTTPException(500, f"Error actualizando CELS: {e}")
 
+
+@app.delete("/cels/{cid}")
+def delete_cel(cid: int, con: duckdb.DuckDBPyConnection = Depends(get_conn_rw)):
+    if READ_ONLY:
+        raise HTTPException(403, "La API está en modo read-only (READ_ONLY)")
+    try:
+        con.execute("BEGIN")
+        exists = con.execute(
+            "SELECT COUNT(*) FROM autoconsumos_CELS WHERE id = ?", [cid]
+        ).fetchone()[0]
+        if not exists:
+            con.execute("ROLLBACK")
+            raise HTTPException(404, f"No existe un CEL con id={cid}")
+
+        con.execute("DELETE FROM autoconsumos_CELS WHERE id = ?", [cid])
+        con.execute("COMMIT")
+        return {"detail": f"CEL con id={cid} eliminado correctamente"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        con.execute("ROLLBACK")
+        raise HTTPException(500, f"Error eliminando CELS: {e}")
 
 
 

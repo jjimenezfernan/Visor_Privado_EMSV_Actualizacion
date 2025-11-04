@@ -28,6 +28,9 @@ import { Autocomplete } from "@mui/material";
 // para /api/visor_emsv usa DIRECTION (tu Node API: 3041)
 import { DIRECTION } from "../../data/direccion_server";
 
+
+
+
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
 const EMSV_URL = `${DIRECTION}/api/visor_emsv`;
 
@@ -191,11 +194,11 @@ function ActualizarCELS() {
 
       if (mode === "crear" || !selectedId) {
         await axios.post(`${API_BASE}/cels`, payload);
-        setSnack({ open: true, msg: "CEL registrado correctamente.", severity: "success" });
+        setSnack({ open: true, msg: "Registrado correctamente.", severity: "success" });
         resetForm();
       } else {
         await axios.put(`${API_BASE}/cels/${selectedId}`, payload);
-        setSnack({ open: true, msg: "CEL actualizado correctamente.", severity: "success" });
+        setSnack({ open: true, msg: "Registro modificado correctamente.", severity: "success" });
       }
     } catch (error) {
       let msg = "Error en el servidor.";
@@ -263,6 +266,22 @@ function ActualizarCELS() {
       "&:hover": { backgroundColor: colors.gray[700] },
     },
   };
+
+
+  const commonBtn = {
+    px: 2.2,
+    py: 1,
+    borderRadius: 2,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    boxShadow: "0 1px 2px rgba(0,0,0,.08)",
+    "&.Mui-disabled": {
+      opacity: 0.6,              // menos transparente que el default
+      color: "#666",
+      borderColor: "#ddd",
+    },
+  };
+  
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
       <SubUpBar
@@ -287,31 +306,32 @@ function ActualizarCELS() {
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
           <Typography variant="h6" sx={{ color: colors.gray[200], fontWeight: 700 }}>
             {mode === "crear"
-              ? "Formulario de registro de CEL o autoconsumo compartido"
-              : "Formulario para editar CEL o autoconsumo compartido"}
+              ? "Crear CEL o autoconsumo compartido"
+              : "Modificar CEL o autoconsumo compartido"}
           </Typography>
 
           <Stack direction="row" spacing={1}>
             <Button
               startIcon={<AddCircleOutlineIcon />}
-              onClick={() => {
-                setMode("crear");
-                resetForm();
-              }}
+              onClick={() => { setMode("crear"); resetForm(); }}
               disableElevation
               sx={{
-                px: 2,
-                fontWeight: 600,
+                textTransform: "none",
+                fontWeight: 700,
                 borderRadius: 2,
-                border: 1,
-                borderColor: mode === "crear" ? "transparent" : colors.gray[600],
-                backgroundColor: mode === "crear" ? theme.palette.primary.main : colors.gray[800],
-                color: mode === "crear" ? "#fff" : colors.gray[100],
-                "&:hover": {
-                  backgroundColor: mode === "crear"
-                    ? theme.palette.primary.dark
-                    : colors.gray[700],
-                },
+                px: 2.5,
+                ...(mode === "crear"
+                  ? {
+                      backgroundColor: colors.gray[700], // ACTIVO → gris oscuro
+                      color: "#fff",
+                      "&:hover": { backgroundColor: colors.gray[600] },
+                    }
+                  : {
+                      backgroundColor: "#fff",           // INACTIVO → blanco
+                      color: colors.gray[800],
+                      border: `1px solid ${colors.gray[400]}`,
+                      "&:hover": { backgroundColor: colors.gray[200] },
+                    }),
               }}
             >
               Crear
@@ -322,25 +342,28 @@ function ActualizarCELS() {
               onClick={() => setMode("modificar")}
               disableElevation
               sx={{
-                px: 2,
-                fontWeight: 600,
+                textTransform: "none",
+                fontWeight: 700,
                 borderRadius: 2,
-                border: 1,
-                borderColor: mode === "modificar" ? "transparent" : colors.gray[600],
-                backgroundColor: mode === "modificar" ? theme.palette.primary.main : colors.gray[800],
-                color: mode === "modificar" ? "#fff" : colors.gray[100],
-                "&:hover": {
-                  backgroundColor: mode === "modificar"
-                    ? theme.palette.primary.dark
-                    : colors.gray[700],
-                },
+                px: 2.5,
+                ...(mode === "modificar"
+                  ? {
+                      backgroundColor: colors.gray[700], 
+                      color: "#fff",
+                      "&:hover": { backgroundColor: colors.gray[600] },
+                    }
+                  : {
+                      backgroundColor: "#fff",           
+                      color: colors.gray[800],
+                      border: `1px solid ${colors.gray[400]}`,
+                      "&:hover": { backgroundColor: colors.gray[500] },
+                    }),
               }}
             >
               Modificar
             </Button>
           </Stack>
         </Stack>
-
 
           {mode === "modificar" && (
             <>
@@ -480,27 +503,106 @@ function ActualizarCELS() {
           )}
 
           {/* --- Botones --- */}
-          <Box mt={3} display="flex" gap={1.5}>
-            <Button variant="contained" color="primary" onClick={handleSubmit} disabled={loading}>
-              {loading ? "Guardando..." : mode === "crear" || !selectedId ? "Guardar" : "Actualizar"}
-            </Button>
-            <Button variant="outlined" onClick={resetForm} disabled={loading}>
-              Limpiar
-            </Button>
+           
+
+            <Box mt={3} display="flex" gap={1.5}>
+              {/* ACTUALIZAR / GUARDAR */}
+              <Button
+                onClick={handleSubmit}
+                disabled={loading}
+                variant="contained"
+                sx={{
+                  ...commonBtn,
+                  bgcolor: "#ffffff",
+                  color: "#111827",
+                  border: "1px solid #e5e7eb",
+                  "&:hover": { bgcolor: "#f3f4f6" },
+                }}
+              >
+                {loading ? "Guardando..." : mode === "crear" || !selectedId ? "Guardar" : "Actualizar"}
+              </Button>
+
+              {/* LIMPIAR */}
+              <Button
+                onClick={resetForm}
+                disabled={loading}
+                variant="contained"
+                sx={{
+                  ...commonBtn,
+                  bgcolor: "#ffffff",
+                  color: "#111827",
+                  border: "1px solid #e5e7eb",
+                  "&:hover": { bgcolor: "#f3f4f6" },
+                }}
+              >
+                Limpiar
+              </Button>
+
+              {/* ELIMINAR (menos transparente, foco rojo suave) */}
+              {mode === "modificar" && selectedId && (
+                <Button
+                  onClick={async () => {
+                    if (!window.confirm("¿Seguro que deseas eliminar este CEL?")) return;
+                    try {
+                      setLoading(true);
+                      await axios.delete(`${API_BASE}/cels/${selectedId}`);
+                      setSnack({ open: true, msg: "Registro eliminado correctamente.", severity: "success" });
+                      resetForm();
+                      const res = await axios.get(`${API_BASE}/cels`, { params: { limit: 200 } });
+                      setCels(res.data.items || []);
+                    } catch (error) {
+                      let msg = "Error al eliminar.";
+                      if (error.response?.status === 403) msg = "La API está en modo solo lectura (READ_ONLY).";
+                      else if (error.response?.status === 404) msg = "No se encontró el registro a eliminar.";
+                      setSnack({ open: true, msg, severity: "error" });
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  variant="outlined"
+                  sx={{
+                    ...commonBtn,
+                    border: "1px solid #ef4444",
+                    color: "#b91c1c",
+                    bgcolor: "rgba(239,68,68,0.06)",     // rojo muy suave, nada “fantasma”
+                    "&:hover": { bgcolor: "rgba(239,68,68,0.12)" },
+                    "&.Mui-disabled": {
+                      opacity: 0.7,                       // menos desvanecido que default
+                      color: "#b91c1c",
+                      borderColor: "#ef9a9a",
+                      bgcolor: "rgba(239,68,68,0.04)",
+                    },
+                  }}
+                >
+                  Eliminar
+                </Button>
+              )}
           </Box>
+
+
         </Paper>
       </Box>
 
+      
       <Snackbar
         open={snack.open}
         autoHideDuration={3500}
         onClose={onCloseSnack}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       >
-        <Alert onClose={onCloseSnack} severity={snack.severity} sx={{ width: "100%" }}>
+        <Alert
+          onClose={onCloseSnack}
+          severity={snack.severity}
+          sx={{
+            width: "100%",
+            "& .MuiAlert-message": { fontSize: 16, fontWeight: 600 }, // ← texto más grande
+            "& .MuiAlert-icon": { fontSize: 22 },                     // ← icono más grande
+          }}
+        >
           {snack.msg}
         </Alert>
       </Snackbar>
+
     </motion.div>
   );
 }

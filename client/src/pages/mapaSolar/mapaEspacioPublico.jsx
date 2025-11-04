@@ -272,7 +272,14 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
     const z = map?.getZoom?.() ?? 0;
     return z >= minZoom && z <= maxZoom;
   };
-  const pointRadiusForZoom = (z) => 1.5;
+
+
+  const pointRadiusForZoom = (z) => {
+    if (z >= 19) return 2.6;   // más grande en 19
+    if (z >= 18) return 1.5;   // ligeramente mayor para “cerrar” huecos en 18
+    return 1.5;                // por si alguien baja a 17
+  };
+
 
   const padBBox = ([w, s, e, n], r = 0.12) => {
     const dx = (e - w) * r, dy = (n - s) * r;
@@ -313,6 +320,7 @@ function ShadowsLayer({ bbox, minZoom = 16, maxZoom = 19 }) {
       return;
     }
 
+   
     const padded = padBBox(bbox, 0.1);
     if (!shouldRefetch(padded, prevFetchBBoxRef.current)) {
       const r = pointRadiusForZoom(map.getZoom());
@@ -929,14 +937,7 @@ export default function NewMap() {
 
       const feature = data.feature;
       const p = feature.properties || {};
-      
-      //const html = `
-      //  <div style="font: 13px system-ui">
-      //    <div style="font-weight:700;margin-bottom:4px;">${calle.toUpperCase()} ${numero}</div>
-      //    <div><b>Referencia:</b> ${p.reference ?? data.reference}</div>
-      //  </div>
-      //`;
-      //highlightSelectedFeature(mapRef.current, feature, html);
+
       highlightSelectedFeature(mapRef.current, feature)
       
     } catch (e) {
@@ -1062,12 +1063,12 @@ export default function NewMap() {
                   {parcelsVisible && (
                   <ParcelsLayer
                     bbox={bbox}
-                    minZoom={15}
+                    minZoom={14}
                     maxZoom={19}
                     onParcelClick={(feature) => highlightSelectedFeature(mapRef.current, feature)}
                   />
                   )}
-                  <ShadowsLayer bbox={bbox} minZoom={17} maxZoom={19} />
+                  <ShadowsLayer bbox={bbox} minZoom={18} maxZoom={19} />
 
                   <ZonalDrawControl onStats={(s) => console.log("Zonal stats:", s)} />
                   {geoLimites && (

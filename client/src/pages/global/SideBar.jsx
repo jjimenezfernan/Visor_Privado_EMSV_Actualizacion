@@ -170,7 +170,7 @@ function SideBar() {
                 <MenuItem
                   style={{ color: colors.gray[100] }}
                   component={<Link to="/cels/nuevo" />}>
-                  Registrar CELS
+                  CELS o Autoconsumos
                 </MenuItem>
               </SubMenu>
               <MenuItem
