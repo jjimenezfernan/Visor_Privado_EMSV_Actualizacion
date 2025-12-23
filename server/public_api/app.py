@@ -31,12 +31,7 @@ app = FastAPI(title=f"EMSV API ({'RO' if READ_ONLY else 'RW'})")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-    ],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1103,3 +1098,5 @@ def parcels_features(
     } for gjson, pid, ncr in rows]
 
     return fc(feats)
+
+

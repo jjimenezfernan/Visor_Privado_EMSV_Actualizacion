@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
+import { API_BASE } from "../data/direccion_server";
+
+
+
 
 function padBBox([w, s, e, n], r = 0.15) {
   const dx = (e - w) * r;

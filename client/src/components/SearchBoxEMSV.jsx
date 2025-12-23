@@ -6,22 +6,27 @@ import {
 } from "@mui/material";
 import { tokens } from "../data/theme";
 import axios from "axios";
-import { DIRECTION } from "../data/direccion_server";
+import { API_BASE } from "../data/direccion_server";
 
-// endpoint para geometría por refcat (tu backend geoespacial)
-const REF_ENDPOINT = (apiBase, refcat) =>
-  `${apiBase}/cadastre/feature?refcat=${encodeURIComponent(refcat)}&include_feature=true`;
+const BACKEND_ROOT = API_BASE.replace(/\/api_2\/?$/, "");
 
-// endpoint PDF (igual que el otro componente)
-const PDF_URL = `${DIRECTION}/api/generate_pdf`;
 
-// NUEVO: endpoint para traer el índice de calles/números desde tu API Node
-const CALLES_ENDPOINT = `${DIRECTION}/api/visor_emsv`;
+// endpoint para geometría por refcat
+const REF_ENDPOINT = (refcat) =>
+  `${API_BASE}/cadastre/feature?refcat=${encodeURIComponent(refcat)}&include_feature=true`;
+
+// endpoint PDF
+const PDF_URL = `${BACKEND_ROOT}/api/generate_pdf`;
+
+// endpoint índice calles/números
+const CALLES_ENDPOINT = `${BACKEND_ROOT}/api/visor_emsv`;
+
+
 
 export default function SearchBoxEMSV({
   // jsonRef,                // ⛔️ ya no se usa
   // loading = false,        // ⛔️ el componente gestiona su propio loading
-  apiBase = "http://127.0.0.1:8000",
+  apiBase = API_BASE,
   onFeature,               // callback(feature, popupHtml)
   collectPdfData,          // opcional: ()=>({ ...propsExtra })  para el PDF
   onReset,
@@ -101,7 +106,7 @@ export default function SearchBoxEMSV({
 
       // 1) intento por refcat
       try {
-        const r1 = await fetch(REF_ENDPOINT(apiBase, refcat));
+        const r1 = await fetch(REF_ENDPOINT(refcat));
         if (r1.ok) {
           const d1 = await r1.json();
           feature = d1?.feature ?? null;

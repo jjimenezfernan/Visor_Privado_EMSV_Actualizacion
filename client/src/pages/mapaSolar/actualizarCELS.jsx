@@ -26,13 +26,12 @@ import SubUpBar from "../global/SubUpBar";
 import { Autocomplete } from "@mui/material";
 
 // para /api/visor_emsv usa DIRECTION (tu Node API: 3041)
-import { DIRECTION } from "../../data/direccion_server";
+import { API_BASE } from "../../data/direccion_server";
 
 
 
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
-const EMSV_URL = `${DIRECTION}/api/visor_emsv`;
+const EMSV_URL = `${API_BASE}/visor_emsv`;  
 
 function ActualizarCELS() {
   const theme = useTheme();
@@ -51,6 +50,7 @@ function ActualizarCELS() {
     auto_CEL: 1,
     por_ocupacion: "",
     num_usuarios: "", 
+    radio: "",
   });
 
   const resetForm = () => {
@@ -62,6 +62,7 @@ function ActualizarCELS() {
       auto_CEL: 1,
       por_ocupacion: "",
       num_usuarios: "",
+      radio: "",
     });
     setSelectedId(null);
   };
@@ -82,6 +83,157 @@ function ActualizarCELS() {
   const [cels, setCels] = useState([]);
   const [loadingCels, setLoadingCels] = useState(false);
 
+
+
+  // ---- Bloque "Modificar datos" ----
+  const [dataSection, setDataSection] = useState("precio");
+
+  // Radio
+  const [radioId, setRadioId] = useState(null);
+  const [radioValue, setRadioValue] = useState("");
+
+  // Precio energía
+  const [precioEnergia, setPrecioEnergia] = useState("");
+  const [loadingPrecio, setLoadingPrecio] = useState(false);
+
+
+  const [precioExcedente, setPrecioExcedente] = useState("");
+  const [loadingExcedente, setLoadingExcedente] = useState(false);
+
+
+  // Obras
+  const [obraForm, setObraForm] = useState({
+    nombre: "",
+    street_norm: "",
+    number_norm: "",
+    reference: "",
+    tipo_obra: "",
+  });
+
+  useEffect(() => {
+    if (!form.street_norm || !refIndex) {
+      setNumbers([]);
+      return;
+    }
+    const nums = Object.keys(refIndex[form.street_norm] || {});
+    nums.sort((a, b) => {
+      const na = parseInt(a, 10), nb = parseInt(b, 10);
+      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+      return String(a).localeCompare(String(b), "es", { sensitivity: "base" });
+    });
+    setNumbers(nums.map(String));
+  }, [form.street_norm, refIndex]);
+
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingPrecio(true);
+        const res = await axios.get(`${API_BASE}/precioEnergia`);
+        const p = res.data?.precio;
+        setPrecioEnergia(p == null ? "" : String(p));
+      } catch (e) {
+        // no bloquea, solo aviso
+        console.error(e);
+      } finally {
+        setLoadingPrecio(false);
+      }
+    })();
+  }, []);
+
+  const handleSaveRadio = async () => {
+    if (!radioId) return setSnack({ open: true, msg: "Selecciona un CELS/AC.", severity: "error" });
+    const r = Number(String(radioValue).replace(",", "."));
+    if (!Number.isFinite(r) || r < 0) return setSnack({ open: true, msg: "Radio inválido.", severity: "error" });
+
+    try {
+      setLoading(true);
+      // OJO: como tu PUT /cels/{id} exige payload completo, lo más fácil:
+      // 1) busca el CEL en memoria (cels array) y manda todo con radio actualizado
+      const cel = cels.find(x => x.id === radioId);
+      if (!cel) throw new Error("CELS no encontrado en listado.");
+
+      const payload = {
+        nombre: cel.nombre,
+        street_norm: cel.street_norm,
+        number_norm: Number(cel.number_norm),
+        reference: cel.reference,
+        auto_CEL: Number(cel.auto_CEL),
+        por_ocupacion: cel.por_ocupacion ?? null,
+        num_usuarios: cel.num_usuarios ?? 0,
+        radio: r,
+      };
+
+      await axios.put(`${API_BASE}/cels/${radioId}`, payload);
+      setSnack({ open: true, msg: "Radio actualizado.", severity: "success" });
+    } catch (e) {
+      const msg = e.response?.data?.detail || "Error actualizando radio.";
+      setSnack({ open: true, msg, severity: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  
+
+  const handleSavePrecio = async () => {
+    const p = Number(String(precioEnergia).replace(",", "."));
+    if (!Number.isFinite(p) || p < 0) return setSnack({ open: true, msg: "Precio inválido.", severity: "error" });
+
+    try {
+      setLoading(true);
+      await axios.put(`${API_BASE}/precioEnergia`, { precio: p });
+      setSnack({ open: true, msg: "Precio de energía actualizado.", severity: "success" });
+    } catch (e) {
+      const msg = e.response?.data?.detail || "Error guardando precio.";
+      setSnack({ open: true, msg, severity: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+  const handleObraChange = (e) => {
+  const { name, value } = e.target;
+  setObraForm((f) => ({ ...f, [name]: value }));
+};
+
+const handleSelectNumberObra = (n) => {
+  const refcat = refIndex?.[obraForm.street_norm]?.[String(n)] ?? "";
+  setObraForm((f) => ({ ...f, number_norm: n, reference: refcat }));
+};
+
+const handleCreateObra = async () => {
+    if (!obraForm.nombre.trim()) return setSnack({ open: true, msg: "Nombre de obra obligatorio.", severity: "error" });
+    if (!obraForm.street_norm) return setSnack({ open: true, msg: "Calle obligatoria.", severity: "error" });
+    if (!obraForm.number_norm) return setSnack({ open: true, msg: "Número obligatorio.", severity: "error" });
+    if (!obraForm.reference) return setSnack({ open: true, msg: "Referencia obligatoria.", severity: "error" });
+    if (!obraForm.tipo_obra.trim()) return setSnack({ open: true, msg: "Descripción/tipo de obra obligatorio.", severity: "error" });
+
+    try {
+      setLoading(true);
+      await axios.post(`${API_BASE}/obras`, {
+        nombre: obraForm.nombre.trim(),
+        street_norm: obraForm.street_norm,
+        number_norm: Number(obraForm.number_norm),
+        reference: obraForm.reference.trim(),
+        tipo_obra: obraForm.tipo_obra.trim(),
+      });
+      setSnack({ open: true, msg: "Obra creada.", severity: "success" });
+      setObraForm({ nombre: "", street_norm: "", number_norm: "", reference: "", tipo_obra: "" });
+    } catch (e) {
+      const msg = e.response?.data?.detail || "Error creando obra.";
+      setSnack({ open: true, msg, severity: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+  
   // Cargar dataset de calles/números al montar (desde /api/visor_emsv)
   useEffect(() => {
     (async () => {
@@ -102,24 +254,21 @@ function ActualizarCELS() {
     })();
   }, []);
 
-  // Actualizar números cuando cambia la calle seleccionada
+  const [numbersObras, setNumbersObras] = useState([]);
+
   useEffect(() => {
-    if (!form.street_norm || !refIndex) {
-      setNumbers([]);
+    if (!obraForm.street_norm || !refIndex) {
+      setNumbersObras([]);
       return;
     }
-    const nums = Object.keys(refIndex[form.street_norm] || {});
-    nums.sort((a, b) => {
-      const na = parseInt(a, 10), nb = parseInt(b, 10);
-      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-      return String(a).localeCompare(String(b), "es", { sensitivity: "base" });
-    });
-    setNumbers(nums.map(String));
-  }, [form.street_norm, refIndex]);
+    const nums = Object.keys(refIndex[obraForm.street_norm] || {});
+    nums.sort((a, b) => (parseInt(a,10) - parseInt(b,10)));
+    setNumbersObras(nums.map(String));
+  }, [obraForm.street_norm, refIndex]);
+
 
   // Buscar CELS existentes (cuando modo='modificar' o cambia el search)
   useEffect(() => {
-    if (mode !== "modificar") return;
     let cancel = false;
     (async () => {
       try {
@@ -127,25 +276,27 @@ function ActualizarCELS() {
         const res = await axios.get(`${API_BASE}/cels`, {
           params: { search: search || "", limit: 200 },
         });
-        if (cancel) return;
-        setCels(res.data.items || []);
+        if (!cancel) setCels(res.data.items || []);
       } catch (e) {
-        console.error(e);
-        setCels([]);
+        if (!cancel) setCels([]);
       } finally {
         if (!cancel) setLoadingCels(false);
       }
     })();
-    return () => {
-      cancel = true;
-    };
-  }, [mode, search]);
+    return () => { cancel = true; };
+  }, [search, mode]);
+
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === "por_ocupacion") {
       const clean = value.replace(",", ".");
       setForm((f) => ({ ...f, por_ocupacion: clean }));
+      return;
+    }
+    if (name === "radio") {
+      const clean = value.replace(",", ".");
+      setForm((f) => ({ ...f, radio: clean }));
       return;
     }
     setForm((f) => ({ ...f, [name]: value }));
@@ -189,7 +340,8 @@ function ActualizarCELS() {
           : { por_ocupacion: Number(form.por_ocupacion) }),
         ...(form.num_usuarios === "" || isNaN(Number(form.num_usuarios))
           ? {}
-          : { num_usuarios: Number(form.num_usuarios) }),         // <— NUEVO
+          : { num_usuarios: Number(form.num_usuarios) }),        
+        ...(form.radio === "" || isNaN(Number(form.radio)) ? {} : { radio: Number(form.radio) }),
       };
 
       if (mode === "crear" || !selectedId) {
@@ -197,7 +349,7 @@ function ActualizarCELS() {
         setSnack({ open: true, msg: "Registrado correctamente.", severity: "success" });
         resetForm();
       } else {
-        await axios.put(`${API_BASE}/cels/${selectedId}`, payload);
+        await axios.put(`${API_BASE}/cels/by_reference`, payload);
         setSnack({ open: true, msg: "Registro modificado correctamente.", severity: "success" });
       }
     } catch (error) {
@@ -232,6 +384,7 @@ function ActualizarCELS() {
       auto_CEL: Number(cel.auto_CEL ?? 1),
       por_ocupacion: por === "" ? "" : String(por),
       num_usuarios: cel.num_usuarios != null ? String(cel.num_usuarios) : "",
+      radio: cel.radio != null ? String(cel.radio) : "",
     });
   };
 
@@ -282,6 +435,74 @@ function ActualizarCELS() {
     },
   };
   
+
+  const [obras, setObras] = useState([]);
+  const [loadingObras, setLoadingObras] = useState(false);
+
+  const fetchObras = async (q="") => {
+    try {
+      setLoadingObras(true);
+      const res = await axios.get(`${API_BASE}/obras`, { params: { search: q, limit: 200 }});
+      setObras(res.data.items || []);
+    } finally {
+      setLoadingObras(false);
+    }
+  };
+
+  useEffect(() => {
+    if (dataSection === "obras") fetchObras();
+  }, [dataSection]);
+
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingPrecio(true);
+        const res = await axios.get(`${API_BASE}/precioEnergia`);
+        const p = res.data?.precio;
+        setPrecioEnergia(p == null ? "" : String(p));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoadingPrecio(false);
+      }
+    })();
+
+    (async () => {
+      try {
+        setLoadingExcedente(true);
+        const res = await axios.get(`${API_BASE}/precioExcedente`);
+        const p = res.data?.precio;
+        setPrecioExcedente(p == null ? "" : String(p));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoadingExcedente(false);
+      }
+    })();
+  }, []);
+
+
+  const handleSaveExcedente = async () => {
+    const p = Number(String(precioExcedente).replace(",", "."));
+    if (!Number.isFinite(p) || p < 0) {
+      return setSnack({ open: true, msg: "Precio excedente inválido.", severity: "error" });
+    }
+
+    try {
+      setLoading(true);
+      await axios.put(`${API_BASE}/precioExcedente`, { precio: p });
+      setSnack({ open: true, msg: "Precio del excedente actualizado.", severity: "success" });
+    } catch (e) {
+      const msg = e.response?.data?.detail || "Error guardando precio excedente.";
+      setSnack({ open: true, msg, severity: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}>
       <SubUpBar
@@ -373,6 +594,7 @@ function ActualizarCELS() {
                   options={celOptions}
                   loading={loadingCels}
                   onChange={(_e, val) => handleSelectCEL(val || null)}
+                  onInputChange={(_e, val) => setSearch(val)} // <-- para filtrar en servidor
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -391,10 +613,10 @@ function ActualizarCELS() {
                   )}
                 />
               </Stack>
+
               <Divider sx={{ mb: 2, borderColor: colors.gray[700] }} />
             </>
           )}
-
           {/* --- Nombre --- */}
           <Stack spacing={2} direction={{ xs: "column", sm: "row" }}>
             <TextField fullWidth label="Nombre" name="nombre" value={form.nombre} onChange={handleChange} />
@@ -484,6 +706,16 @@ function ActualizarCELS() {
               type="number"
               inputProps={{ min: 0, max: 100, step: "0.01" }}
               helperText="Introduce 0–100. Se guardará como 0–100."
+            />
+            <TextField
+              fullWidth
+              label="Radio (m)"
+              name="radio"
+              value={form.radio}
+              onChange={handleChange}
+              type="number"
+              inputProps={{ min: 0, step: 1 }}
+              helperText="Radio de influencia (en metros) para esta CEL / autoconsumo."
             />
           </Stack>
           {/* --- Número de usuarios (solo Autoconsumo compartido) --- */}
@@ -581,6 +813,191 @@ function ActualizarCELS() {
 
 
         </Paper>
+        <Paper elevation={3} sx={{ p: 2.5, mt: 2, backgroundColor: colors.gray[900], borderRadius: 2 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+            <Typography variant="h6" sx={{ color: colors.gray[200], fontWeight: 700 }}>
+              Modificar datos
+            </Typography>
+
+            <ButtonGroup variant="contained" disableElevation>
+              <Button
+                onClick={() => setDataSection("precio")}
+                sx={dataSection === "precio" ? { bgcolor: colors.gray[700] } : { bgcolor: "#fff", color: colors.gray[800] }}
+              >
+                Precio energía
+              </Button>
+              <Button
+                onClick={() => setDataSection("obras")}
+                sx={dataSection === "obras" ? { bgcolor: colors.gray[700] } : { bgcolor: "#fff", color: colors.gray[800] }}
+              >
+                Obras
+              </Button>
+            </ButtonGroup>
+
+          </Stack>
+
+          <Divider sx={{ mb: 2, borderColor: colors.gray[700] }} />
+
+          {/* ====== 2) PRECIO ENERGÍA ====== */}
+          {dataSection === "precio" && (
+            <Stack spacing={2}>
+              <TextField
+                fullWidth
+                label="Precio de energía (€/kWh)"
+                value={precioEnergia}
+                onChange={(e) => setPrecioEnergia(e.target.value)}
+                type="number"
+                inputProps={{ min: 0, step: "0.001" }}
+                helperText={loadingPrecio ? "Cargando precio..." : "Valor global para cálculos."}
+              />
+
+              <Box display="flex" gap={1.5}>
+                <Button
+                  onClick={handleSavePrecio}
+                  disabled={loading}
+                  variant="contained"
+                  sx={{ bgcolor: "#fff", color: "#111827", border: "1px solid #e5e7eb", "&:hover": { bgcolor: "#f3f4f6" } }}
+                >
+                  Guardar precio energía
+                </Button>
+              </Box>
+              <TextField
+                fullWidth
+                label="Precio del excedente energía (€/kWh)"
+                value={precioExcedente}
+                onChange={(e) => setPrecioExcedente(e.target.value)}
+                type="number"
+                inputProps={{ min: 0, step: "0.001" }}
+                helperText={loadingExcedente ? "Cargando precio..." : "Valor global para cálculos."}
+              />
+
+              <Box display="flex" gap={1.5}>
+                <Button
+                  onClick={handleSaveExcedente}
+                  disabled={loading}
+                  variant="contained"
+                  sx={{ bgcolor: "#fff", color: "#111827", border: "1px solid #e5e7eb", "&:hover": { bgcolor: "#f3f4f6" } }}
+                >
+                  Guardar precio excedente energía
+                </Button>
+              </Box>
+
+            </Stack>
+            
+          )}
+          
+          {/* ====== 3) OBRAS ====== */}
+          {dataSection === "obras" && (
+            <Stack spacing={2}>
+              <TextField fullWidth label="Nombre de la obra" name="nombre" value={obraForm.nombre} onChange={handleObraChange} />
+
+              <Stack spacing={2} direction={{ xs: "column", sm: "row" }}>
+                <Autocomplete
+                  fullWidth
+                  options={streets}
+                  value={obraForm.street_norm || null}
+                  onChange={(_e, newValue) => {
+                    setObraForm((f) => ({ ...f, street_norm: newValue || "", number_norm: "", reference: "" }));
+                  }}
+                  loading={loadingIdx}
+                  renderInput={(params) => <TextField {...params} label="Calle" />}
+                />
+
+                <FormControl fullWidth disabled={!obraForm.street_norm || loadingIdx}>
+                  <InputLabel>Número</InputLabel>
+                  <Select
+                    value={obraForm.number_norm}
+                    label="Número"
+                    onChange={(e) => handleSelectNumberObra(e.target.value)}
+                  >
+                    {numbersObras.map((n) => (
+                      <MenuItem key={n} value={n}>{n}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+
+              <TextField
+                fullWidth
+                label="Referencia"
+                name="reference"
+                value={obraForm.reference}
+                onChange={handleObraChange}
+                helperText="Se autocompleta al elegir número."
+              />
+
+              <TextField
+                fullWidth
+                label="Descripción / tipo de obra"
+                name="tipo_obra"
+                value={obraForm.tipo_obra}
+                onChange={handleObraChange}
+                multiline
+                minRows={3}
+              />
+
+              <Box display="flex" gap={1.5}>
+                <Button
+                  onClick={handleCreateObra}
+                  disabled={loading}
+                  variant="contained"
+                  sx={{ bgcolor: "#fff", color: "#111827", border: "1px solid #e5e7eb", "&:hover": { bgcolor: "#f3f4f6" } }}
+                >
+                  Crear obra
+                </Button>
+              </Box>
+              <Divider sx={{ my: 2, borderColor: colors.gray[700] }} />
+
+              <Typography variant="h6" sx={{ color: colors.gray[200] }}>
+                Obras creadas
+              </Typography>
+
+              {loadingObras ? (
+                <CircularProgress size={20} />
+              ) : (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  {obras.map((o) => (
+                    <Paper key={o.id} sx={{ p: 1.2, backgroundColor: colors.gray[800] }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Box>
+                          <Typography sx={{ color: "#fff", fontWeight: 700 }}>
+                            {o.nombre} (id: {o.id})
+                          </Typography>
+                          <Typography sx={{ color: colors.gray[300] }}>
+                            {o.street_norm} {o.number_norm} · {o.reference}
+                          </Typography>
+                          <Typography sx={{ color: colors.gray[400] }}>{o.tipo_obra}</Typography>
+                        </Box>
+
+                        <Button
+                          variant="outlined"
+                          sx={{ borderColor: "#ef4444", color: "#ef4444" }}
+                          onClick={async () => {
+                            if (!window.confirm(`¿Eliminar obra ${o.id}?`)) return;
+                            try {
+                              setLoading(true);
+                              await axios.delete(`${API_BASE}/obras/${o.id}`);
+                              setSnack({ open: true, msg: "Obra eliminada.", severity: "success" });
+                              fetchObras();
+                            } catch (e) {
+                              setSnack({ open: true, msg: e.response?.data?.detail || "Error eliminando obra.", severity: "error" });
+                            } finally {
+                              setLoading(false);
+                            }
+                          }}
+                        >
+                          Eliminar
+                        </Button>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              )}
+
+            </Stack>
+          )}
+        </Paper>
+
       </Box>
 
       
