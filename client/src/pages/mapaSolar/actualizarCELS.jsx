@@ -110,6 +110,12 @@ function ActualizarCELS() {
     tipo_obra: "",
   });
 
+
+  const [obraMode, setObraMode] = useState("crear"); // 'crear' | 'modificar'
+  const [obraSearch, setObraSearch] = useState("");
+  const [selectedObra, setSelectedObra] = useState(null); // objeto completo
+
+
   useEffect(() => {
     if (!form.street_norm || !refIndex) {
       setNumbers([]);
@@ -450,8 +456,91 @@ const handleCreateObra = async () => {
   };
 
   useEffect(() => {
-    if (dataSection === "obras") fetchObras();
-  }, [dataSection]);
+    if (dataSection === "obras") fetchObras(obraSearch);
+  }, [dataSection, obraSearch]);
+
+  
+  const handleSelectObra = (obra) => {
+    setSelectedObra(obra || null);
+    if (!obra) {
+      setObraForm({ nombre:"", street_norm:"", number_norm:"", reference:"", tipo_obra:"" });
+      return;
+    }
+    setObraForm({
+      nombre: obra.nombre || "",
+      street_norm: obra.street_norm || "",
+      number_norm: String(obra.number_norm ?? ""),
+      reference: obra.reference || "",
+      tipo_obra: obra.tipo_obra || "",
+    });
+  };
+
+
+  const validateObra = () => {
+    if (!obraForm.nombre.trim()) return "Nombre de obra obligatorio.";
+    if (!obraForm.street_norm) return "Calle obligatoria.";
+    if (!obraForm.number_norm) return "Número obligatorio.";
+    if (!obraForm.reference) return "Referencia obligatoria.";
+    if (!obraForm.tipo_obra.trim()) return "Descripción/tipo de obra obligatorio.";
+    return null;
+  };
+
+  const handleSaveObra = async () => {
+    const err = validateObra();
+    if (err) return setSnack({ open:true, msg: err, severity:"error" });
+
+    const payload = {
+      nombre: obraForm.nombre.trim(),
+      street_norm: obraForm.street_norm,
+      number_norm: Number(obraForm.number_norm),
+      reference: obraForm.reference.trim(),
+      tipo_obra: obraForm.tipo_obra.trim(),
+    };
+
+    try {
+      setLoading(true);
+      if (obraMode === "modificar" && selectedObra?.id) {
+        await axios.put(`${API_BASE}/obras/${selectedObra.id}`, payload);
+        setSnack({ open:true, msg:"Obra actualizada.", severity:"success" });
+      } else {
+        await axios.post(`${API_BASE}/obras`, payload);
+        setSnack({ open:true, msg:"Obra creada.", severity:"success" });
+      }
+
+      await fetchObras(obraSearch);
+      // opcional: mantener seleccionada la obra o limpiar
+      // setSelectedObra(null);
+      // setObraForm({ ... });
+    } catch (e) {
+      const msg =
+        e.response?.status === 403 ? "La API está en modo solo lectura (READ_ONLY)." :
+        e.response?.data?.detail || "Error guardando obra.";
+      setSnack({ open:true, msg, severity:"error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+  const handleDeleteSelectedObra = async () => {
+    if (!selectedObra?.id) return;
+    if (!window.confirm(`¿Eliminar obra ${selectedObra.id}?`)) return;
+    try {
+      setLoading(true);
+      await axios.delete(`${API_BASE}/obras/${selectedObra.id}`);
+      setSnack({ open:true, msg:"Obra eliminada.", severity:"success" });
+      setSelectedObra(null);
+      setObraForm({ nombre:"", street_norm:"", number_norm:"", reference:"", tipo_obra:"" });
+      await fetchObras(obraSearch);
+    } catch (e) {
+      setSnack({ open:true, msg: e.response?.data?.detail || "Error eliminando obra.", severity:"error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
 
 
   useEffect(() => {
@@ -888,86 +977,187 @@ const handleCreateObra = async () => {
           
           {/* ====== 3) OBRAS ====== */}
           {dataSection === "obras" && (
-            <Stack spacing={2}>
-              <TextField fullWidth label="Nombre de la obra" name="nombre" value={obraForm.nombre} onChange={handleObraChange} />
-
-              <Stack spacing={2} direction={{ xs: "column", sm: "row" }}>
-                <Autocomplete
-                  fullWidth
-                  options={streets}
-                  value={obraForm.street_norm || null}
-                  onChange={(_e, newValue) => {
-                    setObraForm((f) => ({ ...f, street_norm: newValue || "", number_norm: "", reference: "" }));
-                  }}
-                  loading={loadingIdx}
-                  renderInput={(params) => <TextField {...params} label="Calle" />}
-                />
-
-                <FormControl fullWidth disabled={!obraForm.street_norm || loadingIdx}>
-                  <InputLabel>Número</InputLabel>
-                  <Select
-                    value={obraForm.number_norm}
-                    label="Número"
-                    onChange={(e) => handleSelectNumberObra(e.target.value)}
-                  >
-                    {numbersObras.map((n) => (
-                      <MenuItem key={n} value={n}>{n}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Stack>
-
-              <TextField
-                fullWidth
-                label="Referencia"
-                name="reference"
-                value={obraForm.reference}
-                onChange={handleObraChange}
-                helperText="Se autocompleta al elegir número."
-              />
-
-              <TextField
-                fullWidth
-                label="Descripción / tipo de obra"
-                name="tipo_obra"
-                value={obraForm.tipo_obra}
-                onChange={handleObraChange}
-                multiline
-                minRows={3}
-              />
-
-              <Box display="flex" gap={1.5}>
-                <Button
-                  onClick={handleCreateObra}
-                  disabled={loading}
-                  variant="contained"
-                  sx={{ bgcolor: "#fff", color: "#111827", border: "1px solid #e5e7eb", "&:hover": { bgcolor: "#f3f4f6" } }}
-                >
-                  Crear obra
-                </Button>
-              </Box>
-              <Divider sx={{ my: 2, borderColor: colors.gray[700] }} />
-
-              <Typography variant="h6" sx={{ color: colors.gray[200] }}>
-                Obras creadas
+          <Stack spacing={2}>
+            {/* ====== MODO OBRAS: CREAR / MODIFICAR ====== */}
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+              <Typography variant="h6" sx={{ color: colors.gray[200], fontWeight: 700 }}>
+                {obraMode === "crear" ? "Crear obra" : "Modificar obra"}
               </Typography>
 
-              {loadingObras ? (
-                <CircularProgress size={20} />
-              ) : (
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  {obras.map((o) => (
-                    <Paper key={o.id} sx={{ p: 1.2, backgroundColor: colors.gray[800] }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Box>
-                          <Typography sx={{ color: "#fff", fontWeight: 700 }}>
-                            {o.nombre} (id: {o.id})
-                          </Typography>
-                          <Typography sx={{ color: colors.gray[300] }}>
-                            {o.street_norm} {o.number_norm} · {o.reference}
-                          </Typography>
-                          <Typography sx={{ color: colors.gray[400] }}>{o.tipo_obra}</Typography>
-                        </Box>
+              <ButtonGroup variant="contained" disableElevation>
+                <Button
+                  onClick={() => {
+                    setObraMode("crear");
+                    setSelectedObra(null);
+                    setObraSearch("");
+                    setObraForm({ nombre: "", street_norm: "", number_norm: "", reference: "", tipo_obra: "" });
+                  }}
+                  sx={obraMode === "crear" ? { bgcolor: colors.gray[700] } : { bgcolor: "#fff", color: colors.gray[800] }}
+                >
+                  Crear
+                </Button>
+                <Button
+                  onClick={() => setObraMode("modificar")}
+                  sx={obraMode === "modificar" ? { bgcolor: colors.gray[700] } : { bgcolor: "#fff", color: colors.gray[800] }}
+                >
+                  Modificar
+                </Button>
+              </ButtonGroup>
+            </Stack>
+
+            {/* ====== SELECTOR (SOLO MODIFICAR) ====== */}
+            {obraMode === "modificar" && (
+              <Autocomplete
+                fullWidth
+                options={obras}
+                loading={loadingObras}
+                value={selectedObra}
+                isOptionEqualToValue={(opt, val) => opt?.id === val?.id}
+                getOptionLabel={(o) =>
+                  o?.nombre
+                    ? `${o.nombre} • ${o.reference} • ${o.street_norm} ${o.number_norm}`
+                    : `${o?.reference || ""} • ${o?.street_norm || ""} ${o?.number_norm ?? ""}`
+                }
+                onChange={(_e, val) => handleSelectObra(val || null)}
+                onInputChange={(_e, val) => setObraSearch(val)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Seleccionar obra existente"
+                    placeholder={loadingObras ? "Cargando..." : "Escribe para filtrar"}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {loadingObras ? <CircularProgress size={18} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+              />
+            )}
+
+            <Divider sx={{ borderColor: colors.gray[700] }} />
+
+            {/* ====== FORMULARIO ====== */}
+            <TextField fullWidth label="Nombre de la obra" name="nombre" value={obraForm.nombre} onChange={handleObraChange} />
+
+            <Stack spacing={2} direction={{ xs: "column", sm: "row" }}>
+              <Autocomplete
+                fullWidth
+                options={streets}
+                value={obraForm.street_norm || null}
+                onChange={(_e, newValue) => {
+                  setObraForm((f) => ({ ...f, street_norm: newValue || "", number_norm: "", reference: "" }));
+                  if (obraMode === "modificar") setSelectedObra(null);
+                }}
+                loading={loadingIdx}
+                renderInput={(params) => <TextField {...params} label="Calle" />}
+              />
+
+              <FormControl fullWidth disabled={!obraForm.street_norm || loadingIdx}>
+                <InputLabel>Número</InputLabel>
+                <Select value={obraForm.number_norm} label="Número" onChange={(e) => handleSelectNumberObra(e.target.value)}>
+                  {numbersObras.map((n) => (
+                    <MenuItem key={n} value={n}>
+                      {n}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+
+            <TextField
+              fullWidth
+              label="Referencia"
+              name="reference"
+              value={obraForm.reference}
+              onChange={handleObraChange}
+              helperText="Se autocompleta al elegir número; puedes editarla si lo necesitas."
+            />
+
+            <TextField
+              fullWidth
+              label="Descripción / tipo de obra"
+              name="tipo_obra"
+              value={obraForm.tipo_obra}
+              onChange={handleObraChange}
+              multiline
+              minRows={3}
+            />
+
+            {/* ====== BOTONES ====== */}
+            <Box display="flex" gap={1.5}>
+              <Button
+                onClick={handleSaveObra}
+                disabled={loading}
+                variant="contained"
+                sx={{ bgcolor: "#fff", color: "#111827", border: "1px solid #e5e7eb", "&:hover": { bgcolor: "#f3f4f6" } }}
+              >
+                {loading ? "Guardando..." : obraMode === "modificar" && selectedObra?.id ? "Actualizar obra" : "Crear obra"}
+              </Button>
+
+              {obraMode === "modificar" && selectedObra?.id && (
+                <Button
+                  variant="outlined"
+                  disabled={loading}
+                  sx={{ borderColor: "#ef4444", color: "#ef4444" }}
+                  onClick={handleDeleteSelectedObra}
+                >
+                  Eliminar
+                </Button>
+              )}
+
+              <Button
+                onClick={() => {
+                  setSelectedObra(null);
+                  setObraForm({ nombre: "", street_norm: "", number_norm: "", reference: "", tipo_obra: "" });
+                }}
+                disabled={loading}
+                variant="contained"
+                sx={{ bgcolor: "#fff", color: "#111827", border: "1px solid #e5e7eb", "&:hover": { bgcolor: "#f3f4f6" } }}
+              >
+                Limpiar
+              </Button>
+            </Box>
+
+            <Divider sx={{ my: 2, borderColor: colors.gray[700] }} />
+
+            {/* ====== LISTADO ====== */}
+            <Typography variant="h6" sx={{ color: colors.gray[200] }}>
+              Obras creadas
+            </Typography>
+
+            {loadingObras ? (
+              <CircularProgress size={20} />
+            ) : (
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                {obras.map((o) => (
+                  <Paper key={o.id} sx={{ p: 1.2, backgroundColor: colors.gray[800] }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Box>
+                        <Typography sx={{ color: "#fff", fontWeight: 700 }}>
+                          {o.nombre} (id: {o.id})
+                        </Typography>
+                        <Typography sx={{ color: colors.gray[300] }}>
+                          {o.street_norm} {o.number_norm} · {o.reference}
+                        </Typography>
+                        <Typography sx={{ color: colors.gray[400] }}>{o.tipo_obra}</Typography>
+                      </Box>
+
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          sx={{ borderColor: "#93c5fd", color: "#93c5fd" }}
+                          onClick={() => {
+                            setObraMode("modificar");
+                            handleSelectObra(o);
+                          }}
+                        >
+                          Editar
+                        </Button>
 
                         <Button
                           variant="outlined"
@@ -978,7 +1168,11 @@ const handleCreateObra = async () => {
                               setLoading(true);
                               await axios.delete(`${API_BASE}/obras/${o.id}`);
                               setSnack({ open: true, msg: "Obra eliminada.", severity: "success" });
-                              fetchObras();
+                              fetchObras(obraSearch);
+                              if (selectedObra?.id === o.id) {
+                                setSelectedObra(null);
+                                setObraForm({ nombre: "", street_norm: "", number_norm: "", reference: "", tipo_obra: "" });
+                              }
                             } catch (e) {
                               setSnack({ open: true, msg: e.response?.data?.detail || "Error eliminando obra.", severity: "error" });
                             } finally {
@@ -989,13 +1183,15 @@ const handleCreateObra = async () => {
                           Eliminar
                         </Button>
                       </Stack>
-                    </Paper>
-                  ))}
-                </Stack>
-              )}
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </Stack>
+        )}
 
-            </Stack>
-          )}
+
         </Paper>
 
       </Box>
