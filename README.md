@@ -12,23 +12,22 @@ Repositorio que contiene el código del visor privado de la EMSV. Actualmente el
 La estructura actual del proyecto es la siguiente:
 
 visor_privado_emsv_actualizacion/
-- **[visor_privado_emsv_client_actualizado]**, build del frontend React.
-- **[docker_privado]**
-    - **[Dockerfile]**,imagen del backend (FastAPI + DuckDB).
-    - **[server]**
-        - **[app.py]**, API principal
-        - **[requirements.txt]**
-        - **[static/logos/]**, recursos de informes PDF
-- **[Dockerfile.frontend]**, imagen del frontend Nginx.
-- **[nginx_conf_privado]**, configuraciones Nginx históricas
-- **[server]**, carpeta heredada (no utilizada)
+- **visor_privado_emsv_client_actualizado**, build del frontend React.
+- **docker_privado**
+    - **Dockerfile**,imagen del backend (FastAPI + DuckDB).
+    - **server**
+        - **app.py**, API principal
+        - **requirements.txt**
+        - **static/logos/**, recursos de informes PDF
+- **Dockerfile.frontend**, imagen del frontend Nginx.
+- **nginx_conf_privado**, configuraciones Nginx históricas
+- **server**, carpeta heredada (no utilizada)
 
 
 Repositorio raíz del proyecto:
-- **[Visor_EMSV_Backend_DuckDB/]**
-    - **[data/]**
-        - **[warehouse.duckdb]**, base de datos única del visor
-
+- **Visor_EMSV_Backend_DuckDB/**
+    - **data/**
+        - **warehouse.duckdb**, base de datos única del visor
 Archivo de orquestación principal:
 
 **docker-compose.yml**, define los servicios:
