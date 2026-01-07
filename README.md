@@ -36,33 +36,33 @@ Archivo de orquestación principal:
    - frontend-privado (React + Nginx)
    
 ### Tecnologías Utilizadas
-Frontend:
+**Frontend:**
 - React
 - MUI (Material UI)
 - React-Leaflet
 - Nivo Charts
 
-Backend:
+**Backend:**
 - Python 3.13
 - FastAPI + Uvicorn
 - DuckDB 1.4.1 (con extensión spatial)
 - ReportLab / PyMuPDF para generación de PDFs
 - httpx (gateway API)
 
-Infraestructura:
+**Infraestructura:**
 - Docker + Docker Compose
 - Nginx como reverse proxy HTTPS
 - Certificados SSL Let's Encry
 
 ### Ejecución en Local
-Frontend
+**Frontend**
 - Se puede desarrollar en local ejecutando:
   npm install
   npm run dev
 - El build final se genera mediante:
   npm run build
 
-Backend
+**Backend**
 - Se ejecuta dentro de Docker
 - No es necesario lanzar server.js (arquitectura antigua)
 
