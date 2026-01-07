@@ -22,12 +22,9 @@ import "leaflet-draw";
 import * as turf from "@turf/turf";
 
 import { tokens } from "../../data/theme";
-import SearchBoxEMSV from "../../components/SearchBoxEMSV"; 
-import StaticBuildingsLayer from "../../components/BuildingsLayer";
 import AdditionalPanel from "../../components/AdditionalPanel"; 
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
-import MapLoadingOverlay from "../../components/PantallaCarga"; 
 import { useLayoutEffect } from "react";
 import { Selections } from "../../constants/MapConstantsParcelas";
 
