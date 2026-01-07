@@ -6,7 +6,7 @@ Repositorio que contiene el código del visor privado de la EMSV. Actualmente el
 - [Ejecución en Local](#Ejecución-en-Local)
 - [Despliegue en Producción](#Despliegue-en-Producción)
 - [Actualización del Frontend Privado](#Actualización-del-Frontend-Privado)
-- [Actualización del Backend DuckDB](#Acceso-a-la-API)
+- [Actualización del Backend DuckDB](#Actualización-del-Backend-DuckDB)
 
 ### Organización de los Directorios del Proyecto
 La estructura actual del proyecto es la siguiente:
@@ -37,61 +37,70 @@ Archivo de orquestación principal:
    
 ### Tecnologías Utilizadas
 Frontend:
-- React + MUI
+- React
+- MUI (Material UI)
 - React-Leaflet
 - Nivo Charts
 
-Backend compartido:
-- FastAPI + DuckDB
-- Consultas espaciales
-- API de solo lectura para el público
+Backend:
+- Python 3.13
+- FastAPI + Uvicorn
+- DuckDB 1.4.1 (con extensión spatial)
+- ReportLab / PyMuPDF para generación de PDFs
+- httpx (gateway API)
 
 Infraestructura:
 - Docker + Docker Compose
 - Nginx como reverse proxy HTTPS
+- Certificados SSL Let's Encry
 
 ### Ejecución en Local
-
 Frontend
-- Desarrollo:
+- Se puede desarrollar en local ejecutando:
   npm install
   npm run dev
-- Generación del build:
+- El build final se genera mediante:
   npm run build
 
-La API no se ejecuta desde esta carpeta:
-se sirve desde el backend compartido en Docker.
+Backend
+- Se ejecuta dentro de Docker
+- No es necesario lanzar server.js (arquitectura antigua)
 
 ### Despliegue en Producción
+El visor no se ejecuta copiando archivos al servidor,
+sino mediante contenedores Docker.
 
-1) Compilar frontend:
-   npm run build
+1) Construir el backend
+   docker compose build backend-privado
+   docker compose up -d backend-privado
 
-2) Copiar archivos al servidor:
-   visor_privado/visor_privado_emsv_client_actualizado
+2) Construir el gateway
+   docker compose build gateway
+   docker compose up -d gateway
 
-3) Construir contenedor público:
+3) Construir el frontend privado
    docker compose build frontend-privado
-   docker compose up -d frontend-privado
 
 ### Actualización del Frontend Público
+1) Compilar React en local:
+   npm run build
+   genera /dist
 
-Cada actualización requiere:
-1) Generar nuevo build React
-2) Subir index.html + assets
-3) Reconstruir imagen del contenedor:
+2) Copiar el build al servidor:
+   visor_privado/visor_privado_emsv_client_actualizado
+
+3) Reconstruir imagen del frontend:
    docker compose build frontend-privado
    docker compose up -d frontend-privado
 
-### Acceso a la API
+### Actualización del Backend (DuckDB)
+La base de datos se encuentra en:
+   Visor_EMSV_Backend_DuckDB/data/warehouse.duckdb
 
-El visor público accede a la API pasando por el gateway:
-
-   /api_2/...
-
-- Las peticiones GET son de solo lectura
-- Las operaciones de escritura están bloqueadas
-- El backend real reside en backend-privado
+Si se sustituye o modifica:
+1) Hacer backup del archivo
+2) Reiniciar únicamente el backend:
+   docker compose restart backend-privado
 
 
 ### Créditos 
