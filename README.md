@@ -47,7 +47,6 @@ Archivo de orquestación principal:
 - FastAPI + Uvicorn
 - DuckDB 1.4.1 (con extensión spatial)
 - ReportLab / PyMuPDF para generación de PDFs
-- httpx (gateway API)
 
 **Infraestructura:**
 - Docker + Docker Compose
