@@ -103,7 +103,6 @@ export default function AdditionalPanel({
           mb: 1.2,
         }}
       >
-        {/* 👇 AQUÍ VA EL TOGGLE */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
           <Typography fontWeight={700}>Obra seleccionada</Typography>
 
