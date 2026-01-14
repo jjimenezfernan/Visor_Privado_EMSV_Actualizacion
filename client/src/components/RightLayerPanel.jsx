@@ -15,6 +15,8 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { DIRECTION, API_BASE } from "../data/direccion_server";
 import Tooltip from "@mui/material/Tooltip";
 
+import SearchBoxEMSV from "../components/SearchBoxEMSV";
+
 const isFiniteNum = (v) => Number.isFinite(Number(v));
 const fmtPct = (v, d = 0) => (isFiniteNum(v) ? `${Number(v).toFixed(d)}%` : "–");
 const fmtInt = (v, suf = "") => (isFiniteNum(v) ? `${Math.round(Number(v))}${suf}` : "–");
@@ -405,6 +407,15 @@ useEffect(() => {
   
   return (
     <Stack spacing={1.5} sx={{ fontFamily: theme.typography.fontFamily }}>
+      <Section headerBg="#DF9A32" title="Buscador de Direcciones" noPaper>
+        <SearchBoxEMSV
+          jsonRef={searchJsonRef}
+          loading={searchLoading}
+          apiBase={searchApiBase || API_BASE}
+          onFeature={onSearchFeature}
+          onReset={onSearchReset}
+        />
+      </Section>
       {/* ===== IRRADIANCIA ===== */}
       <Section
         headerBg="#DF9A32"

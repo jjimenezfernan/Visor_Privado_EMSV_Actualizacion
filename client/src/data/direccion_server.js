@@ -3,9 +3,9 @@
 let DIRECTION;
 
 if (process.env.NODE_ENV === 'production') {
-    DIRECTION = 'https://visorprivadoemsv.khoraurbanthinkers.es';
+    DIRECTION = 'https://visorprivadoemsvactualizado.khoraurbanthinkers.es';
 } else {
-    DIRECTION = 'http://localhost:3050';
+    DIRECTION = 'https://visorprivadoemsvactualizado.khoraurbanthinkers.es';
 }
 
 export { DIRECTION };
@@ -15,7 +15,7 @@ let API_BASE;
 if (process.env.NODE_ENV === 'production') {
     API_BASE = 'https://visorprivadoemsvactualizado.khoraurbanthinkers.es/api_2';
 } else {
-    API_BASE = 'http://localhost:8010';
+    API_BASE = 'https://visorprivadoemsvactualizado.khoraurbanthinkers.es/api_2';
 }
 
 export { API_BASE };

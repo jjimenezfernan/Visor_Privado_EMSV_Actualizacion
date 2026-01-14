@@ -12,8 +12,8 @@ import {
   Alert,
   CircularProgress,
   useTheme,
-  Select,
-  Autocomplete
+  Switch,
+  FormControlLabel 
 } from "@mui/material";
 
 import "leaflet-draw/dist/leaflet.draw.css";
@@ -21,7 +21,6 @@ import "leaflet-draw";
 import * as turf from "@turf/turf";
 
 import { tokens } from "../../data/theme";
-import SearchBoxEMSV from "../../components/SearchBoxEMSV";
 import StaticBuildingsLayer from "../../components/BuildingsLayer";
 import AdditionalPanel from "../../components/AdditionalPanel";
 import Grid from "@mui/material/Grid";
@@ -29,7 +28,7 @@ import Stack from "@mui/material/Stack";
 import MapLoadingOverlay from "../../components/PantallaCarga";
 
 import { DIRECTION, API_BASE } from "../../data/direccion_server";
-const EMSV_URL = `${DIRECTION}/api/visor_emsv`;
+const EMSV_URL = `${API_BASE}/visor_emsv`;
 
 
 import { useLayoutEffect } from "react";
@@ -811,6 +810,10 @@ function CelsBufferLayer({ radiusMeters = 2000 }) {
 
 export default function NewMap() {
 
+  const [satelliteOn, setSatelliteOn] = useState(false);
+  const prevLayersRef = useRef(null);
+
+
   const [certMode, setCertMode] = useState(null);
 
 
@@ -819,10 +822,12 @@ export default function NewMap() {
     [40.338090, -3.646864],
   ];
 
-  // Usa exactamente la misma lógica que ya tenías en el <SearchBoxEMSV /> inline
-  async function handleSearchBoxFeature(feature) {
+  async function handleSearchBoxFeature(payload) {
+    const feature = payload?.feature ?? payload;     // tolerante
+    const popupHtml = payload?.popupHtml ?? null;
+
     // centrar/seleccionar
-    highlightSelectedFeature(mapRef.current, feature);
+    highlightSelectedFeature(mapRef.current, feature, popupHtml);
 
     // métricas del edificio
     const ref = feature?.properties?.reference;
@@ -863,7 +868,6 @@ export default function NewMap() {
 
       setBStats(stats);
 
-      // CELS
       try {
         setCelsHitsError("");
         setCelsHitsLoading(true);
@@ -885,6 +889,7 @@ export default function NewMap() {
       setBStatsLoading(false);
     }
   }
+
 
   function handleSearchBoxReset() {
     clearSelectionAndPopup();
@@ -1001,11 +1006,15 @@ export default function NewMap() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
+        console.log("EMSV keys:", Object.keys(data));
+        console.log("calles count:", Object.keys(data.calles_num_ref || {}).length);
+
 
         setGeoLimites(data.geo_limites_getafe_emsv ?? null);
         setGeoConViv(data.geo_emsv_parcela_con_vivienda ?? null);
         setGeoSinViv(data.geo_emsv_parcela_sin_vivienda ?? null);
-        setJsonRef(data.json_emsv_calle_num_reference ?? null);
+        setJsonRef(data.calles_num_ref ?? data.json_emsv_calle_num_reference ?? null);
+
       } catch (e) {
         setErrorEmsv("No se pudo cargar el índice de direcciones.");
       } finally {
@@ -1172,7 +1181,34 @@ export default function NewMap() {
     }, [celsVisible]);
 
 
-  
+  useEffect(() => {
+    if (satelliteOn) {
+      prevLayersRef.current = {
+        irradianceVisible,
+        certificateVisible,
+        certMode,
+        shadowsVisible,
+      };
+
+      // Apaga capas para que el satélite se vea limpio
+      setIrradianceVisible(false);
+      setCertificateVisible(false);
+      setCertMode(null);
+      setShadowsVisible(false);
+
+      // 👇 Importante: NO tocamos celsVisible (lo dejas como esté)
+    } else {
+      const prev = prevLayersRef.current;
+      if (prev) {
+        setIrradianceVisible(prev.irradianceVisible);
+        setCertificateVisible(prev.certificateVisible);
+        setCertMode(prev.certMode);
+        setShadowsVisible(prev.shadowsVisible);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [satelliteOn]);
+
 
   return (
     <>
@@ -1197,6 +1233,30 @@ export default function NewMap() {
                 position: "relative",
               }}
             >
+              <Paper
+                elevation={3}
+                sx={{
+                  position: "absolute",
+                  top: 10,
+                  right: 10,
+                  zIndex: 1000,
+                  p: 1,
+                  borderRadius: 2,
+                  pointerEvents: "auto",
+                }}
+              >
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={
+                    <Switch
+                      checked={satelliteOn}
+                      onChange={(e) => setSatelliteOn(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={<Typography sx={{ fontSize: 12, fontWeight: 600 }}>Satélite</Typography>}
+                />
+              </Paper>
               <MapContainer
                 center={[40.307927, -3.732297]}
                 minZoom={14}
@@ -1218,15 +1278,26 @@ export default function NewMap() {
                 <BindMapRef mapRef={mapRef} />
                 <SetupLimitPanes />
                 <BboxWatcher onBboxChange={setBbox} />
-                <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                  attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                  subdomains={["a", "b", "c", "d"]}
-                  maxZoom={19}
-                  opacity={0.8}
-                  zIndex={0}
-                />
-                
+                {!satelliteOn ? (
+                  <TileLayer
+                    key="base-map"
+                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                    subdomains={["a", "b", "c", "d"]}
+                    maxZoom={19}
+                    opacity={0.8}
+                    zIndex={0}
+                  />
+                ) : (
+                  <TileLayer
+                    key="base-sat"
+                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                    attribution="Tiles &copy; Esri"
+                    maxZoom={19}
+                    opacity={1}
+                    zIndex={0}
+                  />
+                )}
                 
                 <CertificateLegend visible={certificateVisible && !!certMode} mode={certMode} />
 

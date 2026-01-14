@@ -1,84 +1,56 @@
 // components/SearchBoxEMSV.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AppBar, Toolbar, Grid, TextField, Button, Autocomplete,
-  CircularProgress, Alert, useTheme, Box
+  CircularProgress, Alert, useTheme, Box, Typography
 } from "@mui/material";
 import { tokens } from "../data/theme";
 import axios from "axios";
-import { API_BASE } from "../data/direccion_server";
-
-const BACKEND_ROOT = API_BASE.replace(/\/api_2\/?$/, "");
-
+import { DIRECTION } from "../data/direccion_server";
 
 // endpoint para geometría por refcat
-const REF_ENDPOINT = (refcat) =>
-  `${API_BASE}/cadastre/feature?refcat=${encodeURIComponent(refcat)}&include_feature=true`;
+const REF_ENDPOINT = (apiBase, refcat) =>
+  `${apiBase}/cadastre/feature?refcat=${encodeURIComponent(refcat)}&include_feature=true`;
 
-// endpoint PDF
-const PDF_URL = `${BACKEND_ROOT}/api/generate_pdf`;
-
-// endpoint índice calles/números
-const CALLES_ENDPOINT = `${BACKEND_ROOT}/api/visor_emsv`;
+// endpoint PDF (igual que el otro componente)
+//const PDF_URL = `${DIRECTION}/api_2/generate_pdf`;
 
 
+const API_2_BASE = `${window.location.origin}/api_2`;
+const PDF_URL = `${API_2_BASE}/generate_pdf`;
 
 export default function SearchBoxEMSV({
-  // jsonRef,                // ⛔️ ya no se usa
-  // loading = false,        // ⛔️ el componente gestiona su propio loading
-  apiBase = API_BASE,
+  jsonRef,                 // índice { calle: { numero: refcat } }
+  loading = false,         // si quieres enseñar spinner mientras llega jsonRef
+  apiBase = API_2_BASE,
   onFeature,               // callback(feature, popupHtml)
   collectPdfData,          // opcional: ()=>({ ...propsExtra })  para el PDF
-  onReset,
+  onReset, 
 }) {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
 
-  // Estado local para el índice { calle: { numero: refcat } } cargado desde API
-  const [refIndex, setRefIndex] = useState({});
-  const [loadingIdx, setLoadingIdx] = useState(true);
   const [street, setStreet] = useState("");
   const [portal, setPortal] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // Cargar índice al montar
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        setLoadingIdx(true);
-        const { data } = await axios.get(CALLES_ENDPOINT);
-        if (!mounted) return;
-        setRefIndex(data?.calles_num_ref || {});
-      } catch (e) {
-        console.error("Error cargando índice de calles:", e);
-        if (mounted) setMsg("No se pudo cargar el índice de calles.");
-      } finally {
-        if (mounted) setLoadingIdx(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  // ---- opciones de autocompletar desde refIndex ----
+  // ---- opciones de autocompletar desde jsonRef ----
   const streetOptions = useMemo(() => {
-    if (!refIndex || typeof refIndex !== "object") return [];
-    return Object.keys(refIndex).sort((a, b) =>
-      a.localeCompare(b, "es", { sensitivity: "base" })
-    );
-  }, [refIndex]);
+    if (!jsonRef || typeof jsonRef !== "object") return [];
+    return Object.keys(jsonRef).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  }, [jsonRef]);
 
   const numberOptions = useMemo(() => {
-    if (!refIndex || !street || !refIndex[street]) return [];
-    return Object.keys(refIndex[street])
+    if (!jsonRef || !street || !jsonRef[street]) return [];
+    return Object.keys(jsonRef[street])
       .map(String)
       .sort((a, b) => {
         const na = parseInt(a, 10), nb = parseInt(b, 10);
         if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
         return a.localeCompare(b, "es", { sensitivity: "base" });
       });
-  }, [refIndex, street]);
+  }, [jsonRef, street]);
 
   const reset = () => {
     setStreet("");
@@ -94,7 +66,7 @@ export default function SearchBoxEMSV({
       setMsg("Selecciona calle y número.");
       return;
     }
-    const refcat = refIndex?.[street]?.[String(portal)];
+    const refcat = jsonRef?.[street]?.[String(portal)];
     if (!refcat) {
       setMsg("No hay referencia catastral en el índice para esa dirección.");
       return;
@@ -106,14 +78,14 @@ export default function SearchBoxEMSV({
 
       // 1) intento por refcat
       try {
-        const r1 = await fetch(REF_ENDPOINT(refcat));
+        const r1 = await fetch(REF_ENDPOINT(apiBase, refcat));
         if (r1.ok) {
           const d1 = await r1.json();
           feature = d1?.feature ?? null;
         }
       } catch (_) {}
 
-      // 2) fallback por calle+número (si tu backend lo soporta)
+      // 2) fallback por calle+número
       if (!feature) {
         const qs = new URLSearchParams({ street, number: portal, include_feature: "true" });
         const r2 = await fetch(`${apiBase}/address/lookup?${qs}`);
@@ -126,10 +98,10 @@ export default function SearchBoxEMSV({
       const popupHtml = `
         <div style="font:13px system-ui">
           <div style="font-weight:700;margin-bottom:4px;">${street.toUpperCase()} ${portal}</div>
-          <div><b>Ref. catastral:</b> ${refIndex?.[street]?.[String(portal)] ?? "-"}</div>
+          <div><b>Ref. catastral:</b> ${jsonRef?.[street]?.[String(portal)] ?? "-"}</div>
         </div>
       `;
-      onFeature?.(feature, popupHtml);
+      onFeature?.({ feature, popupHtml: null, refcat, street, portal });
     } catch (e) {
       console.error(e);
       setMsg(e.message || "No se pudo buscar la dirección.");
@@ -144,13 +116,20 @@ export default function SearchBoxEMSV({
       setMsg("Selecciona calle y número antes de descargar el PDF.");
       return;
     }
-    const refcat = refIndex?.[street]?.[String(portal)];
+    const refcat = jsonRef?.[street]?.[String(portal)];
     if (!refcat) {
       setMsg("No hay referencia catastral para esa dirección.");
       return;
     }
 
-    const baseDatos = { calle: street, num: portal, ref_catastral: refcat };
+    // base mínimo (como referencia si no pasas propiedades adicionales)
+    const baseDatos = {
+      calle: street,
+      num: portal,
+      ref_catastral: refcat,
+    };
+
+    // si el padre quiere añadir datos (p. ej. propiedades del feature seleccionado), los mezcla aquí
     const datos = {
       ...baseDatos,
       ...(typeof collectPdfData === "function" ? collectPdfData({ street, portal, refcat }) : {}),
@@ -171,9 +150,10 @@ export default function SearchBoxEMSV({
     }
   };
 
-  // ---------- UI (igual que tenías) ----------
+  // ---------- UI (estilo calcado al SearchEngineGeneratorPDF) ----------
   return (
     <AppBar position="static" color="default" sx={{ borderRadius: "8px", overflow: "hidden" }}>
+      
       <Toolbar>
         <Grid container spacing={2} alignItems="center">
           {/* Calle */}
@@ -182,8 +162,8 @@ export default function SearchBoxEMSV({
               options={streetOptions}
               value={street || null}
               onChange={(_, v) => { setStreet(v || ""); setPortal(""); }}
-              loading={loadingIdx}
-              noOptionsText={loadingIdx ? "Cargando calles…" : "No hay calles disponibles"}
+              loading={loading}
+              noOptionsText="No hay calles disponibles"
               renderInput={(params) => (
                 <TextField
                   {...params}
@@ -193,7 +173,7 @@ export default function SearchBoxEMSV({
                     ...params.InputProps,
                     endAdornment: (
                       <>
-                        {loadingIdx ? <CircularProgress color="inherit" size={20} /> : null}
+                        {loading ? <CircularProgress color="inherit" size={20} /> : null}
                         {params.InputProps.endAdornment}
                       </>
                     ),
@@ -209,8 +189,8 @@ export default function SearchBoxEMSV({
               options={numberOptions}
               value={portal || null}
               onChange={(_, v) => setPortal(v || "")}
-              noOptionsText={street ? (loadingIdx ? "Cargando…" : "Sin números") : "Seleccione calle primero"}
-              disabled={!street || loadingIdx}
+              noOptionsText={street ? "Sin números" : "Seleccione calle primero"}
+              disabled={!street}
               renderInput={(params) => (
                 <TextField {...params} label="Número del Portal" variant="outlined" />
               )}
@@ -223,7 +203,7 @@ export default function SearchBoxEMSV({
               variant="contained"
               color="primary"
               onClick={doSearch}
-              disabled={!street || !portal || busy || loadingIdx}
+              disabled={!street || !portal || busy}
               sx={{ fontSize: "15px", padding: "8px 8px", minWidth: "107px" }}
             >
               {busy ? <CircularProgress size={20} sx={{ color: "#fff" }} /> : "Buscar"}
@@ -232,32 +212,7 @@ export default function SearchBoxEMSV({
         </Grid>
       </Toolbar>
 
-      {/* Botonera inferior */}
-      <Toolbar sx={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={reset}
-          sx={{
-            fontSize: "12px",
-            padding: "8px 8px",
-            minWidth: "107px",
-            backgroundColor: "#bbbbbb",
-            "&:hover": { backgroundColor: "#8a8a8a" },
-          }}
-        >
-          Restablecer Datos
-        </Button>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={handleDownloadPDF}
-          sx={{ fontSize: "12px", padding: "8px 8px", minWidth: "107px", ml: 1.8, mr: 1 }}
-          disabled={loadingIdx || !street || !portal}
-        >
-          Descargar PDF
-        </Button>
-      </Toolbar>
+      
 
       {/* Mensajes */}
       {msg && (
